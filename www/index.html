@@ -7,10 +7,10 @@
 <style>
 *{margin:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
 html,body{height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,sans-serif}
-#v{position:fixed;left:0;top:0;transform-origin:0 0}
+#v{position:fixed;left:0;top:0;transform-origin:0 0;will-change:transform}
 #c{position:fixed;inset:0;width:100%;height:100%}
-#bt{position:fixed;right:calc(16px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:14px}
-#bt button{width:100px;height:62px;border-radius:14px;border:2px solid #fff;background:rgba(0,0,0,.5);color:#fff;font-size:15px;font-weight:700}
+#bt{position:fixed;right:calc(18px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:14px}
+#bt button{width:108px;height:60px;border-radius:12px;border:2px solid #fff;background:rgba(0,0,0,.5);color:#fff;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px}
 #bl.on{background:rgba(255,60,60,.65)}
 #bz.on{background:rgba(30,190,90,.65)}
 #bl.off{opacity:.35}
@@ -23,43 +23,53 @@ html,body{height:100%;overflow:hidden;background:#000;color:#fff;font-family:sys
 <body>
 <video id="v" playsinline muted autoplay></video>
 <canvas id="c"></canvas>
-<div id="bt"><button id="bl">🔒 锁定</button><button id="bz">🔍 变焦</button></div>
-<div id="ov"><div style="font-size:26px;font-weight:800">🎯 动态锁定</div><div id="ms">自动框出所有会动的物体。点方框选目标，再按右边按钮锁定或变焦。</div><button id="go">开始</button></div>
+<div id="bt">
+<button id="bl"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>锁定</span></button>
+<button id="bz"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M10 7v6M7 10h6"/></svg><span>变焦</span></button>
+</div>
+<div id="ov"><div style="font-size:26px;font-weight:800">动态锁定</div><div id="ms">自动框出所有会动的物体。点方框选目标，再按右边按钮锁定或变焦。</div><button id="go">开始</button></div>
 <script src="tf.min.js"></script>
 <script src="coco.min.js"></script>
 <script>
 const $=i=>document.getElementById(i);
 const CN=('person:人,bicycle:自行车,car:轿车,motorcycle:摩托车,airplane:飞机,bus:公交车,train:火车,truck:卡车,boat:船,traffic light:红绿灯,fire hydrant:消防栓,stop sign:停车标志,parking meter:停车计时器,bench:长椅,bird:鸟,cat:猫,dog:狗,horse:马,sheep:羊,cow:牛,elephant:大象,bear:熊,zebra:斑马,giraffe:长颈鹿,backpack:背包,umbrella:雨伞,handbag:手提包,tie:领带,suitcase:行李箱,frisbee:飞盘,skis:滑雪板,snowboard:单板,sports ball:球,kite:风筝,baseball bat:球棒,baseball glove:棒球手套,skateboard:滑板,surfboard:冲浪板,tennis racket:网球拍,bottle:瓶子,wine glass:酒杯,cup:杯子,fork:叉子,knife:刀,spoon:勺子,bowl:碗,banana:香蕉,apple:苹果,sandwich:三明治,orange:橙子,broccoli:西兰花,carrot:胡萝卜,hot dog:热狗,pizza:披萨,donut:甜甜圈,cake:蛋糕,chair:椅子,couch:沙发,potted plant:盆栽,bed:床,dining table:餐桌,toilet:马桶,tv:电视,laptop:笔记本电脑,mouse:鼠标,remote:遥控器,keyboard:键盘,cell phone:手机,microwave:微波炉,oven:烤箱,toaster:烤面包机,sink:水槽,refrigerator:冰箱,book:书,clock:时钟,vase:花瓶,scissors:剪刀,teddy bear:玩具熊,hair drier:吹风机,toothbrush:牙刷').split(',').reduce((m,s)=>{const p=s.split(':');m[p[0]]=p[1];return m},{});
 const SZ={person:[1.7,'h'],car:[1.8,'w'],truck:[2.5,'w'],bus:[2.5,'w'],bicycle:[1.7,'w'],motorcycle:[2,'w'],dog:[.5,'h'],cat:[.3,'h'],horse:[1.6,'h'],cow:[1.4,'h']};
-const SW=160;
-let SH=90,VW=0,VH=0,W=0,H=0,s0=1,z=1,cvx=0,cvy=0,A=null,gyro=0,mstat='',tr=[],nid=1,sel=0,lk=0,zm=0,zlost=0,model=null,ai='AI命名：未加载',aps=0,na=0,nt=0,note='',T0=0;
-const vid=$('v'),cvs=$('c'),X=cvs.getContext('2d'),sc=document.createElement('canvas'),Sx=sc.getContext('2d',{willReadFrequently:true}),oc=document.createElement('canvas'),Zc=oc.getContext('2d');
+  const AW=320;
+let AH=180,VW=0,VH=0,W=0,H=0,s0=1,z=1,cvx=0,cvy=0,gyro=0,mstat='',tr=[],nid=1,sel=0,lk=0,zm=0,zlost=0,model=null,ai='AI命名：未加载',aps=0,na=0,nt=0,note='',T0=0,busy=false,wk=null,step=null;
+const vid=$('v'),cvs=$('c'),X=cvs.getContext('2d'),ac=document.createElement('canvas'),Cx=ac.getContext('2d',{willReadFrequently:true}),oc=document.createElement('canvas'),Zc=oc.getContext('2d');
 function rs(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cvs.width=W*d;cvs.height=H*d;X.setTransform(d,0,0,d,0,0);if(VW)s0=Math.max(W/VW,H/VH)}
 addEventListener('resize',rs);rs();
 addEventListener('devicemotion',e=>{const r=e.rotationRate;if(r)gyro=Math.hypot(r.alpha||0,r.beta||0,r.gamma||0)});
 const say=t=>$('ms').textContent=t;
 function toast(t){note=t;nt=2}
 function ui(){
-  $('bl').textContent=lk?'取消锁定':'🔒 锁定';$('bl').className=(lk?'on ':'')+(zm?'off':'');
-  $('bz').textContent=zm?'取消变焦':'🔍 变焦';$('bz').className=zm?'on':'';
+  $('bl').lastChild.textContent=lk?'取消锁定':'锁定';$('bl').className=(lk?'on ':'')+(zm?'off':'');
+  $('bz').lastChild.textContent=zm?'取消变焦':'变焦';$('bz').className=zm?'on':'';
 }
-const life=t=>t.id===lk||t.id===zm||t.id===sel?8000:(t.cls?3000:1200);
-  /* ---------- 画面分析：全局运动估计 + 补偿帧差 ---------- */
-function blur(g){
+const life=t=>t.id===lk||t.id===zm||t.id===sel?1500:(t.cls?1200:500);
+
+/* ---------- 画面分析（在后台线程运行）---------- */
+function toGray(d,n){const g=new Uint8Array(n);for(let i=0,j=0;j<n;i+=4,j++)g[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;return g}
+function blur(g,w,h){
   const o=new Uint8Array(g.length);
-  for(let y=1;y<SH-1;y++)for(let x=1;x<SW-1;x++){const i=y*SW+x;o[i]=(g[i-SW-1]+g[i-SW]+g[i-SW+1]+g[i-1]+g[i]+g[i+1]+g[i+SW-1]+g[i+SW]+g[i+SW+1])/9}
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;o[i]=(g[i-w-1]+g[i-w]+g[i-w+1]+g[i-1]+g[i]+g[i+1]+g[i+w-1]+g[i+w]+g[i+w+1])/9}
   return o;
 }
-function flow(a,b){
+function half(g,w,h){
+  const a=w>>1,b=h>>1,o=new Uint8Array(a*b);
+  for(let y=0;y<b;y++)for(let x=0;x<a;x++){const i=2*y*w+2*x;o[y*a+x]=(g[i]+g[i+1]+g[i+w]+g[i+w+1])>>2}
+  return o;
+}
+function flow(a,b,w,h){
   const BS=8,R=6,P=[];
-  for(let y=R;y<=SH-BS-R;y+=10)for(let x=R;x<=SW-BS-R;x+=10){
-    let m=0;for(let j=0;j<BS;j++)for(let i=0;i<BS;i++)m+=a[(y+j)*SW+x+i];m/=64;
-    let v=0;for(let j=0;j<BS;j++)for(let i=0;i<BS;i++){const e=a[(y+j)*SW+x+i]-m;v+=e*e}
+  for(let y=R;y<=h-BS-R;y+=10)for(let x=R;x<=w-BS-R;x+=10){
+    let m=0;for(let j=0;j<BS;j++)for(let i=0;i<BS;i++)m+=a[(y+j)*w+x+i];m/=64;
+    let v=0;for(let j=0;j<BS;j++)for(let i=0;i<BS;i++){const e=a[(y+j)*w+x+i]-m;v+=e*e}
     if(v<64*25)continue;
-    const sad=(dx,dy)=>{let s=0;for(let j=0;j<BS;j++){const ra=(y+j)*SW+x,rb=(y+j+dy)*SW+x+dx;for(let i=0;i<BS;i++)s+=Math.abs(a[ra+i]-b[rb+i])}return s};
+    const sad=(dx,dy)=>{let s=0;for(let j=0;j<BS;j++){const ra=(y+j)*w+x,rb=(y+j+dy)*w+x+dx;for(let i=0;i<BS;i++)s+=Math.abs(a[ra+i]-b[rb+i])}return s};
     let best=sad(0,0),bx=0,by=0;
     for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){if(!dx&&!dy)continue;const s=sad(dx,dy);if(s<best){best=s;bx=dx;by=dy}}
-    if(best<64*14)P.push([x+4-SW/2,y+4-SH/2,bx,by]);
+    if(best<64*14)P.push([x+4-w/2,y+4-h/2,bx,by]);
   }
   return P;
 }
@@ -81,87 +91,115 @@ function fit(P){
     const S2=P.filter((p,i)=>res[i]<=th);if(S2.length<6)break;S=S2;
   }
   return {M:M,ratio:S.length/P.length};
-}
-function diff(a,b,M){
-  const D=new Uint8Array(SW*SH),hist=new Uint32Array(256);
-  for(let y=3;y<SH-3;y++)for(let x=3;x<SW-3;x++){
-    const cx=x-SW/2,cy=y-SH/2,px=x-(M[0]+M[1]*cx+M[2]*cy),py=y-(M[3]+M[4]*cx+M[5]*cy);
-    if(px<0||py<0||px>=SW-1||py>=SH-1)continue;
-    const ix=px|0,iy=py|0,fx=px-ix,fy=py-iy,i=iy*SW+ix;
-    const p=a[i]*(1-fx)*(1-fy)+a[i+1]*fx*(1-fy)+a[i+SW]*(1-fx)*fy+a[i+SW+1]*fx*fy;
-    const d=Math.abs(b[y*SW+x]-p)|0;D[y*SW+x]=d;hist[d]++;
+  }
+  function diff(a,b,M,w,h){
+  const D=new Uint8Array(w*h),hist=new Uint32Array(256);
+  for(let y=3;y<h-3;y++)for(let x=3;x<w-3;x++){
+    const cx=x-w/2,cy=y-h/2,px=x-(M[0]+M[1]*cx+M[2]*cy),py=y-(M[3]+M[4]*cx+M[5]*cy);
+    if(px<0||py<0||px>=w-1||py>=h-1)continue;
+    const ix=px|0,iy=py|0,fx=px-ix,fy=py-iy,i=iy*w+ix;
+    const p=a[i]*(1-fx)*(1-fy)+a[i+1]*fx*(1-fy)+a[i+w]*(1-fx)*fy+a[i+w+1]*fx*fy;
+    const d=Math.abs(b[y*w+x]-p)|0;D[y*w+x]=d;hist[d]++;
   }
   let tot=0;for(let i=0;i<256;i++)tot+=hist[i];
   let acc=0,med=0;while(med<255&&acc+hist[med]<tot/2){acc+=hist[med];med++}
-  return {D:D,hist:hist,med:med};
+  return {D:D,med:med};
 }
-function dil(m){
+function dil(m,w,h){
   const o=new Uint8Array(m.length);
-  for(let y=1;y<SH-1;y++)for(let x=1;x<SW-1;x++){const i=y*SW+x;if(m[i-SW-1]|m[i-SW]|m[i-SW+1]|m[i-1]|m[i]|m[i+1]|m[i+SW-1]|m[i+SW]|m[i+SW+1])o[i]=1}
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;if(m[i-w-1]|m[i-w]|m[i-w+1]|m[i-1]|m[i]|m[i+1]|m[i+w-1]|m[i+w]|m[i+w+1])o[i]=1}
   return o;
 }
-function blobs(D,med){
-  const thr=Math.max(22,med*4+14),m=new Uint8Array(SW*SH);let cnt=0;
+function blobs(D,med,w,h){
+  const thr=Math.max(20,med*4+12),m=new Uint8Array(w*h);let cnt=0;
   for(let i=0;i<m.length;i++)if(D[i]>thr){m[i]=1;cnt++}
   if(cnt>m.length*.3)return null;
-  const g=dil(dil(m)),seen=new Uint8Array(m.length),st=new Int32Array(m.length),out=[];
+  const g=dil(dil(m,w,h),w,h),seen=new Uint8Array(m.length),st=new Int32Array(m.length),out=[];
   for(let s=0;s<g.length;s++){
     if(!g[s]||seen[s])continue;
     let sp=0,x0=1e9,y0=1e9,x1=-1,y1=-1,n=0;st[sp++]=s;seen[s]=1;
     while(sp){
-      const i=st[--sp],x=i%SW,y=(i/SW)|0;
+      const i=st[--sp],x=i%w,y=(i/w)|0;
       if(m[i]){n++;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
       for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
-        const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=SW||ny>=SH)continue;
-        const j=ny*SW+nx;if(g[j]&&!seen[j]){seen[j]=1;st[sp++]=j}
+        const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        const j=ny*w+nx;if(g[j]&&!seen[j]){seen[j]=1;st[sp++]=j}
       }
     }
-    if(n>=8&&x1-x0>=3&&y1-y0>=3)out.push({x:x0,y:y0,w:x1-x0+1,h:y1-y0+1});
+    if(n>=8&&x1-x0>=2&&y1-y0>=2)out.push({x:x0,y:y0,w:x1-x0+1,h:y1-y0+1});
   }
   let ch=true;
   while(ch){
     ch=false;
     for(let i=0;i<out.length&&!ch;i++)for(let j=i+1;j<out.length;j++){
-      const p=out[i],q=out[j],G=5;
+      const p=out[i],q=out[j],G=8;
       if(p.x-G<q.x+q.w&&q.x-G<p.x+p.w&&p.y-G<q.y+q.h&&q.y-G<p.y+p.h){
         const x0=Math.min(p.x,q.x),y0=Math.min(p.y,q.y),x1=Math.max(p.x+p.w,q.x+q.w),y1=Math.max(p.y+p.h,q.y+q.h);
         out[i]={x:x0,y:y0,w:x1-x0,h:y1-y0};out.splice(j,1);ch=true;break;
       }
     }
   }
-  return out.filter(b=>{const cx=b.x+b.w/2,cy=b.y+b.h/2;return b.w*b.h<SW*SH*.5&&(b.w*b.h>150||(cx>6&&cx<SW-6&&cy>5&&cy<SH-5))});
-      }
-  /* ---------- 追踪：方形框、命名、距离 ---------- */
-function setBox(t,b){t.tx=b.x+b.w/2;t.ty=b.y+b.h/2;t.ts=Math.max(b.w,b.h)*1.12+8}
+  return out.filter(b=>{const cx=b.x+b.w/2,cy=b.y+b.h/2;return b.w*b.h<w*h*.5&&(b.w*b.h>600||(cx>10&&cx<w-10&&cy>8&&cy<h-8))});
+}
+function proc(p,c,w,h,gy){
+  const P=flow(p.s,c.s,w>>1,h>>1),F=P.length>=8?fit(P):null;
+  let M=null;if(F&&F.ratio>=.45)M=F.M;else if(!F&&gy<8)M=[0,0,0,0,0,0];
+  if(!M||gy>120)return {st:'注意：手机移动过快，暂停判定'};
+  const M2=[2*M[0],M[1],M[2],2*M[3],M[4],M[5]],r=diff(p.g,c.g,M2,w,h);
+  if(r.med>10)return {st:'注意：画面对不上（移动过快），暂停判定'};
+  const bl=blobs(r.D,r.med,w,h);
+  return bl?{bl:bl,st:'运动补偿 '+M2[0].toFixed(1)+','+M2[3].toFixed(1)+'px'}:{st:'注意：画面整体变化，已跳过'};
+}
+function mkStep(){
+  let p=null;
+  return m=>{const w=m.w,h=m.h,g=blur(toGray(new Uint8ClampedArray(m.buf),w*h),w,h),c={g:g,s:half(g,w,h)};const r=p?proc(p,c,w,h,m.gy):null;p=c;return r}
+                     }
+  /* ---------- 追踪：速度预测、方形框、命名、距离 ---------- */
+const prune=now=>{tr=tr.filter(t=>now-t.seen<life(t))};
 function trk(bl,now){
   const used=new Set();
   bl.sort((p,q)=>q.w*q.h-p.w*p.h).forEach(b=>{
     const cx=b.x+b.w/2,cy=b.y+b.h/2,sd=Math.max(b.w,b.h);
     let best=null,bd=1e9;
-    tr.forEach(t=>{if(used.has(t))return;const d=Math.hypot(t.tx-cx,t.ty-cy);if(d<bd&&d<Math.max(sd,t.ts)*.9+VW*.02){bd=d;best=t}});
+    tr.forEach(t=>{
+      if(used.has(t))return;
+      const e=(now-t.tm)/1000,d=Math.hypot(t.rx+t.vx*e-cx,t.ry+t.vy*e-cy),r=sd/t.sw0;
+      if(r<.35||r>2.8)return;
+      if(d<bd&&d<Math.max(sd,t.sw0)*.8+Math.hypot(t.vx,t.vy)*e*.5+VW*.004){bd=d;best=t}
+    });
+    let w2=b.w,h2=b.h,mx=cx,my=cy;
     if(!best){
-      best={id:nid++,cx:cx,cy:cy,sd:sd*1.12+8,hits:0,cls:'',sc:0,dt:0,dist:0,db:null};
-      setBox(best,b);tr.push(best);
+      best={id:nid++,hits:0,cls:'',sc:0,dt:0,dist:0,db:null,vx:0,vy:0,cx:cx,cy:cy,sd:sd,seen:now};
+      tr.push(best);
     }else{
+      const e=Math.min(.12,Math.max(.03,(now-best.tm)/1000));
+      best.vx=best.vx*.6+(cx-best.rx)/e*.4;best.vy=best.vy*.6+(cy-best.ry)/e*.4;
+      if(best.hits>=2){
+        w2=Math.max(b.w*.55,b.w-Math.abs(best.vx)*e);h2=Math.max(b.h*.55,b.h-Math.abs(best.vy)*e);
+        mx=cx+Math.max(-b.w*.4,Math.min(b.w*.4,best.vx*e/2));my=cy+Math.max(-b.h*.4,Math.min(b.h*.4,best.vy*e/2));
+      }
       const d=best.db;
-      if(d&&now-best.dt<1500&&cx>d.x-.15*d.w&&cx<d.x+1.15*d.w&&cy>d.y-.15*d.h&&cy<d.y+1.15*d.h)setBox(best,d);else setBox(best,b);
+      if(d&&now-best.dt<700&&cx>d.x-.15*d.w&&cx<d.x+1.15*d.w&&cy>d.y-.15*d.h&&cy<d.y+1.15*d.h){
+        const s=(now-best.dt)/1000;mx=d.x+d.w/2+best.vx*s;my=d.y+d.h/2+best.vy*s;w2=d.w;h2=d.h;
+      }
     }
     if(now-best.seen>400)best.hits=0;
-    used.add(best);best.hits++;best.seen=now;
+    best.rx=cx;best.ry=cy;best.sw0=sd;best.mx=mx;best.my=my;best.sw=Math.max(w2,h2);
+    best.tm=now;best.seen=now;best.hits++;used.add(best);
   });
-  tr=tr.filter(t=>now-t.seen<life(t));
+  prune(now);
 }
 function applyDet(res,k,now){
   const ds=res.map(r=>({x:r.bbox[0]*k,y:r.bbox[1]*k,w:r.bbox[2]*k,h:r.bbox[3]*k,c:r.class,s:r.score})),pick=new Map();
   tr.forEach(t=>{
     let b=null;
-    ds.forEach(d=>{if(t.tx>d.x-.15*d.w&&t.tx<d.x+1.15*d.w&&t.ty>d.y-.15*d.h&&t.ty<d.y+1.15*d.h&&(!b||d.w*d.h<b.w*b.h))b=d});
+    ds.forEach(d=>{if(t.mx>d.x-.15*d.w&&t.mx<d.x+1.15*d.w&&t.my>d.y-.15*d.h&&t.my<d.y+1.15*d.h&&(!b||d.w*d.h<b.w*b.h))b=d});
     if(b){if(!pick.has(b))pick.set(b,[]);pick.get(b).push(t)}
   });
-  const dead=new Set();
+  const dead=new Set(),isT=t=>t.id===lk||t.id===zm||t.id===sel;
   pick.forEach((ts,d)=>{
-    ts.sort((p,q)=>((q.id===lk||q.id===zm||q.id===sel)-(p.id===lk||p.id===zm||p.id===sel))||(q.hits-p.hits));
-    const t=ts[0];ts.slice(1).forEach(o=>{if(o.id!==lk&&o.id!==zm&&o.id!==sel)dead.add(o)});
+    ts.sort((p,q)=>(isT(q)-isT(p))||(q.hits-p.hits));
+    const t=ts[0];ts.slice(1).forEach(o=>{if(!isT(o))dead.add(o)});
     if(t.cls!==d.c)t.dist=0;
     t.cls=d.c;t.sc=d.s;t.db={x:d.x,y:d.y,w:d.w,h:d.h};t.dt=now;
     if(t.id===lk||t.id===zm)t.seen=now;
@@ -172,39 +210,40 @@ function applyDet(res,k,now){
 }
 function dtxt(t){
   if(t.dist)return '约'+t.dist.toFixed(t.dist<10?1:0)+'m';
-  const f=t.ts/VH;return (f>.4?'近':f>.15?'中':'远')+'(估)';
+  const f=t.sd/VH;return (f>.4?'近':f>.15?'中':'远')+'(估)';
 }
-const vis=()=>zm?tr.filter(t=>t.id===zm):tr.filter(t=>t.hits>=4||t.id===lk||t.id===sel);
+const vis=()=>zm?tr.filter(t=>t.id===zm):tr.filter(t=>t.hits>=5||t.id===lk||t.id===sel);
 
-function grab(){
-  Sx.drawImage(vid,0,0,SW,SH);
-  const d=Sx.getImageData(0,0,SW,SH).data,g=new Uint8Array(SW*SH);
-  for(let i=0,j=0;j<g.length;i+=4,j++)g[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
-  return blur(g);
+function mkWorker(){
+  step=mkStep();
+  try{
+    const src=[toGray,blur,half,flow,ls,fit,diff,dil,blobs,proc,mkStep].map(f=>f.toString()).join('\n')+'\nconst st=mkStep();onmessage=e=>postMessage({r:st(e.data),t:e.data.t});';
+    wk=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+    wk.onmessage=e=>{busy=false;onRes(e.data.r,e.data.t)};
+    wk.onerror=()=>{wk=null;busy=false};
+  }catch(e){wk=null}
 }
-function analyze(){
-  if(!VW||vid.readyState<2)return;
-  const now=performance.now(),cur=grab();
-  if(A){
-    let bl=null,M=null;const P=flow(A,cur),F=P.length>=8?fit(P):null;
-    if(F&&F.ratio>=.45)M=F.M;else if(!F&&gyro<8)M=[0,0,0,0,0,0];
-    if(!M||gyro>120)mstat='⚠ 手机移动过快，暂停判定';
-    else{
-      const r=diff(A,cur,M);bl=r.med>10?null:blobs(r.D,r.med);
-      mstat=r.med>10?'⚠ 配准失败（移动过快），暂停判定':bl?'运动补偿 '+M[0].toFixed(1)+','+M[3].toFixed(1)+'px':'⚠ 画面整体变化，已跳过';
-    }
-    if(bl){const k=VW/SW;trk(bl.map(b=>({x:b.x*k,y:b.y*k,w:b.w*k,h:b.h*k})),now)}
-    else tr=tr.filter(t=>now-t.seen<life(t));
-    na++;
-  }
-  A=cur;
+function onRes(r,t){
+  if(!r)return;
+  na++;mstat=r.st;
+  if(r.bl){const k=VW/AW;trk(r.bl.map(b=>({x:b.x*k,y:b.y*k,w:b.w*k,h:b.h*k})),t)}else prune(t);
 }
+function cap(){
+  if(busy||!VW||vid.readyState<2)return;
+  const t=performance.now();
+  Cx.drawImage(vid,0,0,AW,AH);
+  const d=Cx.getImageData(0,0,AW,AH),m={buf:d.data.buffer,w:AW,h:AH,gy:gyro,t:t};
+  if(wk){busy=true;wk.postMessage(m,[m.buf])}else onRes(step(m),t);
+}
+function vf(){cap();vid.requestVideoFrameCallback(vf)}
 async function detect(){
-  if(model&&VW&&tr.length){
-    try{oc.width=416;oc.height=Math.round(416*VH/VW);Zc.drawImage(vid,0,0,oc.width,oc.height);applyDet(await model.detect(oc,12,.4),VW/416,performance.now())}catch(e){}
+  const now=performance.now();
+  const need=model&&VW&&vis().some(t=>!t.cls||(t.id===lk||t.id===zm)&&now-t.dt>1500||now-t.dt>5000);
+  if(need){
+    try{oc.width=320;oc.height=Math.round(320*VH/VW);Zc.drawImage(vid,0,0,oc.width,oc.height);applyDet(await model.detect(oc,12,.4),VW/320,performance.now())}catch(e){}
   }
-  setTimeout(detect,350);
-      }
+  setTimeout(detect,need?600:250);
+                                          }
   /* ---------- 显示与交互 ---------- */
 const S=(x,y)=>[W/2+(x-cvx)*s0*z,H/2+(y-cvy)*s0*z];
 function corners(x,y,s,col,lw){
@@ -212,21 +251,24 @@ function corners(x,y,s,col,lw){
   [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(q=>{const a=x+q[0]*h,b=y+q[1]*h;X.moveTo(a,b-q[1]*l);X.lineTo(a,b);X.lineTo(a-q[0]*l,b)});
   X.stroke();
 }
-function draw(dt){
-  const a=1-Math.exp(-dt*12);
-  tr.forEach(t=>{t.cx+=(t.tx-t.cx)*a;t.cy+=(t.ty-t.cy)*a;t.sd+=(t.ts-t.sd)*a});
+function draw(dt,now){
+  const a=1-Math.exp(-dt*25);
+  tr.forEach(t=>{
+    const e=Math.max(0,Math.min(.25,(now-t.tm)/1000));
+    t.cx+=(t.mx+t.vx*e-t.cx)*a;t.cy+=(t.my+t.vy*e-t.cy)*a;t.sd+=(t.sw*1.06+4-t.sd)*a;
+  });
   if(sel&&!tr.some(t=>t.id===sel))sel=0;
   if(lk&&!tr.some(t=>t.id===lk)){lk=0;toast('锁定目标丢失');ui()}
   let tz=1,tx=VW/2,ty=VH/2;
   if(zm){
     const t=tr.find(t=>t.id===zm);
     if(t){zlost=0;tz=Math.max(1.5,Math.min(6,.42*H/(t.sd*s0)));tx=t.cx;ty=t.cy}
-    else{zlost+=dt;tz=z;tx=cvx;ty=cvy;if(zlost>4){zm=0;toast('目标丢失，已退出变焦');ui()}}
+    else{zlost+=dt;tz=z;tx=cvx;ty=cvy;if(zlost>3){zm=0;toast('目标丢失，已退出变焦');ui()}}
   }
-  z+=(tz-z)*(1-Math.exp(-dt*4));
+  z+=(tz-z)*(1-Math.exp(-dt*5));
   const hw=Math.min(VW/2,W/(2*s0*z)),hh=Math.min(VH/2,H/(2*s0*z));
-  cvx+=(Math.max(hw,Math.min(VW-hw,tx))-cvx)*(1-Math.exp(-dt*8));
-  cvy+=(Math.max(hh,Math.min(VH-hh,ty))-cvy)*(1-Math.exp(-dt*8));
+  cvx+=(Math.max(hw,Math.min(VW-hw,tx))-cvx)*(1-Math.exp(-dt*10));
+  cvy+=(Math.max(hh,Math.min(VH-hh,ty))-cvy)*(1-Math.exp(-dt*10));
   if(VW)vid.style.transform='translate('+(W/2-cvx*s0*z)+'px,'+(H/2-cvy*s0*z)+'px) scale('+s0*z+')';
   X.clearRect(0,0,W,H);X.textBaseline='middle';X.textAlign='left';
   vis().forEach(t=>{
@@ -245,7 +287,7 @@ function draw(dt){
   });
   X.font='13px sans-serif';X.fillStyle='#fff';
   X.fillText('分析 '+aps+'次/秒 · 目标 '+vis().length+' · '+mstat,40,20);
-  X.fillText(ai+(zm?' · 变焦 ×'+z.toFixed(1):''),40,40);
+  X.fillText(ai+(zm?' · 变焦 x'+z.toFixed(1):''),40,40);
   if(!lk&&!zm)X.fillText(sel?'已选中 #'+sel+'，按右侧按钮':'点方框选择目标',40,H-20);
   if(nt>0){nt-=dt;X.textAlign='center';X.font='bold 18px sans-serif';X.fillText(note,W/2,H-44)}
 }
@@ -267,18 +309,20 @@ $('bz').onclick=()=>{
   ui();
 };
 function frame(t){
-  const dt=Math.min(.05,(t-T0)/1000||.016);T0=t;draw(dt);requestAnimationFrame(frame);
+  const dt=Math.min(.05,(t-T0)/1000||.016);T0=t;draw(dt,performance.now());requestAnimationFrame(frame);
 }
 $('go').onclick=async()=>{
   const b=$('go');b.disabled=true;
   try{
     say('正在打开摄像头…（弹出权限请求请点允许）');
-    vid.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},audio:false});
+    vid.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:false});
     await vid.play();
-    VW=vid.videoWidth;VH=vid.videoHeight;SH=Math.round(SW*VH/VW);sc.width=SW;sc.height=SH;
+    VW=vid.videoWidth;VH=vid.videoHeight;AH=Math.round(AW*VH/VW);ac.width=AW;ac.height=AH;
     vid.style.width=VW+'px';vid.style.height=VH+'px';s0=Math.max(W/VW,H/VH);cvx=VW/2;cvy=VH/2;
     $('ov').style.display='none';
-    setInterval(analyze,70);setInterval(()=>{aps=na;na=0},1000);detect();ui();
+    mkWorker();
+    if(vid.requestVideoFrameCallback)vid.requestVideoFrameCallback(vf);else setInterval(cap,40);
+    setInterval(()=>{aps=na;na=0},1000);detect();ui();
     ai='AI命名：加载中…';
     try{
       if(!(await tf.setBackend('webgl')))await tf.setBackend('cpu');
