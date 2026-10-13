@@ -1,0 +1,32 @@
+name: b
+on: push
+permissions:
+  contents: write
+jobs:
+  b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: |
+          B=https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2
+          mkdir -p www/model
+          curl -fsSL -o www/tf.min.js https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0
+          curl -fsSL -o www/coco.min.js https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3
+          curl -fsSL -o www/model/model.json $B/model.json
+          node -e "const fs=require('fs'),p='www/model/model.json',j=JSON.parse(fs.readFileSync(p)),n=[];j.weightsManifest.forEach(m=>m.paths=m.paths.map(x=>{n.push(x);return x+'.bin'}));fs.writeFileSync(p,JSON.stringify(j));fs.writeFileSync('names.txt',n.join(' '))"
+          for f in $(cat names.txt); do curl -fsSL -o www/model/$f.bin $B/$f; done
+          npm init -y
+          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          echo '{"appId":"com.motionlock.app","appName":"动态锁定","webDir":"www"}' > capacitor.config.json
+          npx cap add android
+          sed -i '0,/<activity/s//<activity android:screenOrientation="landscape"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<application#' android/app/src/main/AndroidManifest.xml
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: android/app/build/outputs/apk/debug/app-debug.apk
