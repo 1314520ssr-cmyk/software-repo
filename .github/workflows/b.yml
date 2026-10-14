@@ -1,53 +1,237 @@
 name: b
-on: push
+
+on:
+  push:
+  workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   b:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - run: |
-          B=https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2
+
+      - name: Download AI libraries and model
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          B="https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2"
+
           mkdir -p www/model
-          curl -fsSL -o www/tf.min.js https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0
-          curl -fsSL -o www/coco.min.js https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3
-          curl -fsSL -o www/model/model.json $B/model.json
-          node -e "const fs=require('fs'),p='www/model/model.json',j=JSON.parse(fs.readFileSync(p)),n=[];j.weightsManifest.forEach(m=>m.paths=m.paths.map(x=>{n.push(x);return x+'.bin'}));fs.writeFileSync(p,JSON.stringify(j));fs.writeFileSync('names.txt',n.join(' '))"
-          for f in $(cat names.txt); do curl -fsSL -o www/model/$f.bin $B/$f; done
+
+          echo "Downloading TensorFlow.js..."
+          curl -fsSL --retry 3 \
+            -o www/tf.min.js \
+            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"
+
+          echo "Downloading COCO-SSD..."
+          curl -fsSL --retry 3 \
+            -o www/coco.min.js \
+            "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
+
+          echo "Downloading model configuration..."
+          curl -fsSL --retry 3 \
+            -o www/model/model.json \
+            "$B/model.json"
+
+          test -s www/tf.min.js
+          test -s www/coco.min.js
+          test -s www/model/model.json
+
+          echo "Reading model weight file list..."
+
+          node -e '
+          const fs = require("fs");
+          const j = JSON.parse(fs.readFileSync("www/model/model.json", "utf8"));
+          const paths = [...new Set(
+            (j.weightsManifest || []).flatMap(group => group.paths || [])
+          )];
+
+          if (paths.length === 0) {
+            console.error("ERROR: No model weight files found.");
+            process.exit(1);
+          }
+
+          for (const p of paths) {
+            if (
+              typeof p !== "string" ||
+              p.startsWith("/") ||
+              p.includes("..") ||
+              p.includes("\\")
+            ) {
+              console.error("ERROR: Invalid weight path:", p);
+              process.exit(1);
+            }
+          }
+
+          fs.writeFileSync("names.txt", paths.join("\n") + "\n");
+          console.log("Weight files:", paths.length);
+          '
+
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+
+            echo "Downloading model weight: $f"
+
+            mkdir -p "www/model/$(dirname "$f")"
+
+            curl -fsSL --retry 3 \
+              -o "www/model/$f" \
+              "$B/$f"
+
+            test -s "www/model/$f"
+          done < names.txt
+
+          echo "Checking downloaded model files..."
+
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+          const j = JSON.parse(fs.readFileSync("www/model/model.json", "utf8"));
+
+          let count = 0;
+
+          for (const group of j.weightsManifest || []) {
+            for (const f of group.paths || []) {
+              const file = path.join("www/model", f);
+
+              if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+                console.error("ERROR: Missing model weight:", file);
+                process.exit(1);
+              }
+
+              count++;
+            }
+          }
+
+          console.log("Model configuration and", count, "weight files verified.");
+          '
+
+      - name: Install Capacitor
+        shell: bash
+        run: |
+          set -euo pipefail
+
           npm init -y
-          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          echo '{"appId":"com.motionlock.app","appName":"动态锁定","webDir":"www"}' > capacitor.config.json
+
+          npm install \
+            @capacitor/core@6 \
+            @capacitor/cli@6 \
+            @capacitor/android@6
+
+          cat > capacitor.config.json <<'CONFIG'
+          {
+            "appId": "com.motionlock.app",
+            "appName": "动态锁定",
+            "webDir": "www"
+          }
+          CONFIG
+
+      - name: Create Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
           npx cap add android
-          sed -i '0,/<activity/s//<activity android:screenOrientation="landscape"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<application#' android/app/src/main/AndroidManifest.xml
+
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+
+          test -f "$MANIFEST"
+
+          sed -i \
+            '0,/<activity/s//<activity android:screenOrientation="landscape"/' \
+            "$MANIFEST"
+
+          sed -i \
+            's#<application#<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<application#' \
+            "$MANIFEST"
+
           cat > android/app/src/main/java/com/motionlock/app/MainActivity.java <<'JAVA'
           package com.motionlock.app;
+
           import android.os.Build;
           import android.os.Bundle;
           import android.view.View;
           import android.view.WindowManager;
           import com.getcapacitor.BridgeActivity;
+
           public class MainActivity extends BridgeActivity {
-            @Override public void onCreate(Bundle b) { super.onCreate(b); hide(); }
-            @Override public void onWindowFocusChanged(boolean f) { super.onWindowFocusChanged(f); if (f) hide(); }
-            private void hide() {
-              getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-              if (Build.VERSION.SDK_INT >= 28) {
-                WindowManager.LayoutParams p = getWindow().getAttributes();
-                p.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                getWindow().setAttributes(p);
+
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              hideSystemUI();
+            }
+
+            @Override
+            public void onWindowFocusChanged(boolean hasFocus) {
+              super.onWindowFocusChanged(hasFocus);
+
+              if (hasFocus) {
+                hideSystemUI();
               }
-              getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+
+            private void hideSystemUI() {
+              getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+              );
+
+              if (Build.VERSION.SDK_INT >= 28) {
+                WindowManager.LayoutParams params = getWindow().getAttributes();
+
+                params.layoutInDisplayCutoutMode =
+                  WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+
+                getWindow().setAttributes(params);
+              }
+
+              getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+              );
             }
           }
           JAVA
-          cd android && chmod +x gradlew && ./gradlew assembleDebug
-      - uses: softprops/action-gh-release@v2
+
+      - name: Build Android APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd android
+
+          chmod +x gradlew
+
+          ./gradlew --no-daemon assembleDebug
+
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish APK
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          name: 动态锁定 - 最新构建
+          body: |
+            由 GitHub Actions 自动构建的 Android APK。
+
+            此版本为 Debug 构建，安装后请实际测试摄像头、
+            AI 模型加载、目标检测和追踪功能。
           files: android/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
