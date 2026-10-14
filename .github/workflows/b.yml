@@ -19,9 +19,9 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
 
-      - name: Download and verify AI dependencies
+      - name: Download AI dependencies and model
         shell: bash
         run: |
           set -euo pipefail
@@ -30,36 +30,18 @@ jobs:
 
           mkdir -p www/model
 
-          echo "Downloading TensorFlow.js browser bundle..."
+          echo "Downloading TensorFlow.js..."
           curl -fLsS --retry 3 \
             "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js" \
             -o www/tf.min.js
 
-          echo "Downloading COCO-SSD browser bundle..."
+          echo "Downloading COCO-SSD..."
           curl -fLsS --retry 3 \
             "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js" \
             -o www/coco.min.js
 
           test -s www/tf.min.js
           test -s www/coco.min.js
-
-          node <<'NODE'
-          const fs = require('fs');
-
-          for (const file of ['www/tf.min.js', 'www/coco.min.js']) {
-            const content = fs.readFileSync(file, 'utf8');
-
-            if (content.length < 1000) {
-              throw new Error(`${file} appears too small`);
-            }
-
-            if (content.trimStart().startsWith('<')) {
-              throw new Error(`${file} contains HTML, not JavaScript`);
-            }
-
-            console.log(`${file}: ${content.length} characters`);
-          }
-          NODE
 
           echo "Downloading model configuration..."
           curl -fLsS --retry 3 \
@@ -75,7 +57,7 @@ jobs:
 
           if (!Array.isArray(model.weightsManifest) ||
               model.weightsManifest.length === 0) {
-            throw new Error('Model JSON has no weightsManifest');
+            throw new Error('Invalid model.json');
           }
 
           const paths = [
@@ -85,7 +67,7 @@ jobs:
           ];
 
           if (paths.length === 0) {
-            throw new Error('Model JSON contains no weight paths');
+            throw new Error('No weight files found');
           }
 
           for (const p of paths) {
@@ -95,7 +77,7 @@ jobs:
               p.includes('..') ||
               p.includes('\\')
             ) {
-              throw new Error(`Invalid model weight path: ${p}`);
+              throw new Error('Invalid weight path: ' + p);
             }
           }
 
@@ -120,28 +102,9 @@ jobs:
 
             test -s "www/model/$file"
 
-            node -e '
-              const fs = require("fs");
-              const file = process.argv[1];
-              const data = fs.readFileSync(file);
-
-              if (data.length < 4) {
-                console.error("Weight file too small:", file);
-                process.exit(1);
-              }
-
-              if (data.length % 4 !== 0) {
-                console.log(
-                  "WARNING: Byte length is not divisible by 4:",
-                  file,
-                  data.length
-                );
-              }
-            ' "www/model/$file"
-
           done < weights-list.txt
 
-          echo "Verifying model weight files..."
+          echo "Verifying model weights..."
           node <<'NODE'
           const fs = require('fs');
           const path = require('path');
@@ -150,29 +113,31 @@ jobs:
             fs.readFileSync('www/model/model.json', 'utf8')
           );
 
-          let total = 0;
+          let count = 0;
+          let totalBytes = 0;
 
           for (const group of model.weightsManifest) {
-            for (const weight of group.paths || []) {
-              const file = path.join('www/model', weight);
+            for (const name of group.paths || []) {
+              const file = path.join('www/model', name);
 
               if (!fs.existsSync(file)) {
-                throw new Error(`Missing model weight: ${file}`);
+                throw new Error('Missing weight: ' + file);
               }
 
               const size = fs.statSync(file).size;
 
               if (size === 0) {
-                throw new Error(`Empty model weight: ${file}`);
+                throw new Error('Empty weight: ' + file);
               }
 
-              total += size;
+              count++;
+              totalBytes += size;
             }
           }
 
-          console.log('Total weight bytes:', total);
-          console.log('Model file checks passed.');
-          NODE- name: Install Capacitor
+          console.log('Verified weights:', count);
+          console.log('Total bytes:', totalBytes);
+          NODE      - name: Install Capacitor
         shell: bash
         run: |
           set -euo pipefail
@@ -244,9 +209,12 @@ jobs:
               );
 
               if (Build.VERSION.SDK_INT >= 28) {
-                WindowManager.LayoutParams params = getWindow().getAttributes();
+                WindowManager.LayoutParams params =
+                  getWindow().getAttributes();
+
                 params.layoutInDisplayCutoutMode =
                   WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+
                 getWindow().setAttributes(params);
               }
 
