@@ -15,110 +15,164 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Download AI libraries and model
+      - name: Download and verify AI dependencies
         shell: bash
         run: |
           set -euo pipefail
 
-          B="https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2"
+          MODEL_URL="https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2"
 
           mkdir -p www/model
 
-          echo "Downloading TensorFlow.js..."
-          curl -fsSL --retry 3 \
-            -o www/tf.min.js \
-            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"
+          echo "Downloading TensorFlow.js browser bundle..."
+          curl -fLsS --retry 3 \
+            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js" \
+            -o www/tf.min.js
 
-          echo "Downloading COCO-SSD..."
-          curl -fsSL --retry 3 \
-            -o www/coco.min.js \
-            "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
-
-          echo "Downloading model configuration..."
-          curl -fsSL --retry 3 \
-            -o www/model/model.json \
-            "$B/model.json"
+          echo "Downloading COCO-SSD browser bundle..."
+          curl -fLsS --retry 3 \
+            "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js" \
+            -o www/coco.min.js
 
           test -s www/tf.min.js
           test -s www/coco.min.js
-          test -s www/model/model.json
 
-          echo "Reading model weight file list..."
+          node <<'NODE'
+          const fs = require('fs');
 
-          node -e '
-          const fs = require("fs");
-          const j = JSON.parse(fs.readFileSync("www/model/model.json", "utf8"));
-          const paths = [...new Set(
-            (j.weightsManifest || []).flatMap(group => group.paths || [])
-          )];
+          for (const file of ['www/tf.min.js', 'www/coco.min.js']) {
+            const content = fs.readFileSync(file, 'utf8');
+
+            if (content.length < 1000) {
+              throw new Error(`${file} appears too small`);
+            }
+
+            if (content.trimStart().startsWith('<')) {
+              throw new Error(`${file} contains HTML, not JavaScript`);
+            }
+
+            console.log(`${file}: ${content.length} characters`);
+          }
+          NODE
+
+          echo "Downloading model configuration..."
+          curl -fLsS --retry 3 \
+            "$MODEL_URL/model.json" \
+            -o www/model/model.json
+
+          node <<'NODE'
+          const fs = require('fs');
+
+          const model = JSON.parse(
+            fs.readFileSync('www/model/model.json', 'utf8')
+          );
+
+          if (!Array.isArray(model.weightsManifest) ||
+              model.weightsManifest.length === 0) {
+            throw new Error('Model JSON has no weightsManifest');
+          }
+
+          const paths = [
+            ...new Set(
+              model.weightsManifest.flatMap(group => group.paths || [])
+            )
+          ];
 
           if (paths.length === 0) {
-            console.error("ERROR: No model weight files found.");
-            process.exit(1);
+            throw new Error('Model JSON contains no weight paths');
           }
 
           for (const p of paths) {
             if (
-              typeof p !== "string" ||
-              p.startsWith("/") ||
-              p.includes("..") ||
-              p.includes("\\")
+              typeof p !== 'string' ||
+              p.startsWith('/') ||
+              p.includes('..') ||
+              p.includes('\\')
             ) {
-              console.error("ERROR: Invalid weight path:", p);
-              process.exit(1);
+              throw new Error(`Invalid model weight path: ${p}`);
             }
           }
 
-          fs.writeFileSync("names.txt", paths.join("\n") + "\n");
-          console.log("Weight files:", paths.length);
-          '
+          fs.writeFileSync(
+            'weights-list.txt',
+            paths.join('\n') + '\n'
+          );
 
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
+          console.log('Weight files:', paths.length);
+          NODE
 
-            echo "Downloading model weight: $f"
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
 
-            mkdir -p "www/model/$(dirname "$f")"
+            echo "Downloading weight: $file"
 
-            curl -fsSL --retry 3 \
-              -o "www/model/$f" \
-              "$B/$f"
+            mkdir -p "www/model/$(dirname "$file")"
 
-            test -s "www/model/$f"
-          done < names.txt
+            curl -fLsS --retry 3 \
+              "$MODEL_URL/$file" \
+              -o "www/model/$file"
 
-          echo "Checking downloaded model files..."
+            test -s "www/model/$file"
 
-          node -e '
-          const fs = require("fs");
-          const path = require("path");
-          const j = JSON.parse(fs.readFileSync("www/model/model.json", "utf8"));
+            node -e '
+              const fs = require("fs");
+              const file = process.argv[1];
+              const data = fs.readFileSync(file);
 
-          let count = 0;
-
-          for (const group of j.weightsManifest || []) {
-            for (const f of group.paths || []) {
-              const file = path.join("www/model", f);
-
-              if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
-                console.error("ERROR: Missing model weight:", file);
+              if (data.length < 4) {
+                console.error("Weight file too small:", file);
                 process.exit(1);
               }
 
-              count++;
+              if (data.length % 4 !== 0) {
+                console.log(
+                  "WARNING: Byte length is not divisible by 4:",
+                  file,
+                  data.length
+                );
+              }
+            ' "www/model/$file"
+
+          done < weights-list.txt
+
+          echo "Verifying model weight files..."
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const model = JSON.parse(
+            fs.readFileSync('www/model/model.json', 'utf8')
+          );
+
+          let total = 0;
+
+          for (const group of model.weightsManifest) {
+            for (const weight of group.paths || []) {
+              const file = path.join('www/model', weight);
+
+              if (!fs.existsSync(file)) {
+                throw new Error(`Missing model weight: ${file}`);
+              }
+
+              const size = fs.statSync(file).size;
+
+              if (size === 0) {
+                throw new Error(`Empty model weight: ${file}`);
+              }
+
+              total += size;
             }
           }
 
-          console.log("Model configuration and", count, "weight files verified.");
-          '
-
-      - name: Install Capacitor
+          console.log('Total weight bytes:', total);
+          console.log('Model file checks passed.');
+          NODE- name: Install Capacitor
         shell: bash
         run: |
           set -euo pipefail
@@ -138,7 +192,7 @@ jobs:
           }
           CONFIG
 
-      - name: Create Android project
+      - name: Generate Android project
         shell: bash
         run: |
           set -euo pipefail
@@ -167,7 +221,6 @@ jobs:
           import com.getcapacitor.BridgeActivity;
 
           public class MainActivity extends BridgeActivity {
-
             @Override
             public void onCreate(Bundle savedInstanceState) {
               super.onCreate(savedInstanceState);
@@ -177,10 +230,7 @@ jobs:
             @Override
             public void onWindowFocusChanged(boolean hasFocus) {
               super.onWindowFocusChanged(hasFocus);
-
-              if (hasFocus) {
-                hideSystemUI();
-              }
+              if (hasFocus) hideSystemUI();
             }
 
             private void hideSystemUI() {
@@ -195,10 +245,8 @@ jobs:
 
               if (Build.VERSION.SDK_INT >= 28) {
                 WindowManager.LayoutParams params = getWindow().getAttributes();
-
                 params.layoutInDisplayCutoutMode =
                   WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-
                 getWindow().setAttributes(params);
               }
 
@@ -209,15 +257,13 @@ jobs:
           }
           JAVA
 
-      - name: Build Android APK
+      - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
 
           cd android
-
           chmod +x gradlew
-
           ./gradlew --no-daemon assembleDebug
 
           test -s app/build/outputs/apk/debug/app-debug.apk
@@ -228,10 +274,7 @@ jobs:
           tag_name: latest
           name: 动态锁定 - 最新构建
           body: |
-            由 GitHub Actions 自动构建的 Android APK。
-
-            此版本为 Debug 构建，安装后请实际测试摄像头、
-            AI 模型加载、目标检测和追踪功能。
+            自动构建的 Android Debug APK。
           files: android/app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
