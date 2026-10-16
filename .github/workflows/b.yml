@@ -1,248 +1,56 @@
 name: b
-
-on:
-  push:
-  workflow_dispatch:
-
+on: push
 permissions:
   contents: write
-
 jobs:
   b:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
-
-      - name: Download AI dependencies and model
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          MODEL_URL="https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2"
-
+          java-version: 17
+      - run: |
+          B=https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2
           mkdir -p www/model
-
-          echo "Downloading TensorFlow.js..."
-          curl -fLsS --retry 3 \
-            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js" \
-            -o www/tf.min.js
-
-          echo "Downloading COCO-SSD..."
-          curl -fLsS --retry 3 \
-            "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js" \
-            -o www/coco.min.js
-
-          test -s www/tf.min.js
-          test -s www/coco.min.js
-
-          echo "Downloading model configuration..."
-          curl -fLsS --retry 3 \
-            "$MODEL_URL/model.json" \
-            -o www/model/model.json
-
-          node <<'NODE'
-          const fs = require('fs');
-
-          const model = JSON.parse(
-            fs.readFileSync('www/model/model.json', 'utf8')
-          );
-
-          if (!Array.isArray(model.weightsManifest) ||
-              model.weightsManifest.length === 0) {
-            throw new Error('Invalid model.json');
-          }
-
-          const paths = [
-            ...new Set(
-              model.weightsManifest.flatMap(group => group.paths || [])
-            )
-          ];
-
-          if (paths.length === 0) {
-            throw new Error('No weight files found');
-          }
-
-          for (const p of paths) {
-            if (
-              typeof p !== 'string' ||
-              p.startsWith('/') ||
-              p.includes('..') ||
-              p.includes('\\')
-            ) {
-              throw new Error('Invalid weight path: ' + p);
-            }
-          }
-
-          fs.writeFileSync(
-            'weights-list.txt',
-            paths.join('\n') + '\n'
-          );
-
-          console.log('Weight files:', paths.length);
-          NODE
-
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-
-            echo "Downloading weight: $file"
-
-            mkdir -p "www/model/$(dirname "$file")"
-
-            curl -fLsS --retry 3 \
-              "$MODEL_URL/$file" \
-              -o "www/model/$file"
-
-            test -s "www/model/$file"
-
-          done < weights-list.txt
-
-          echo "Verifying model weights..."
-          node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-
-          const model = JSON.parse(
-            fs.readFileSync('www/model/model.json', 'utf8')
-          );
-
-          let count = 0;
-          let totalBytes = 0;
-
-          for (const group of model.weightsManifest) {
-            for (const name of group.paths || []) {
-              const file = path.join('www/model', name);
-
-              if (!fs.existsSync(file)) {
-                throw new Error('Missing weight: ' + file);
-              }
-
-              const size = fs.statSync(file).size;
-
-              if (size === 0) {
-                throw new Error('Empty weight: ' + file);
-              }
-
-              count++;
-              totalBytes += size;
-            }
-          }
-
-          console.log('Verified weights:', count);
-          console.log('Total bytes:', totalBytes);
-          NODE      - name: Install Capacitor
-        shell: bash
-        run: |
-          set -euo pipefail
-
+          curl -fsSL -o www/tf.min.js https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0
+          curl -fsSL -o www/coco.min.js https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3
+          curl -fsSL -o www/model/model.json $B/model.json
+          node -e "const fs=require('fs'),p='www/model/model.json',j=JSON.parse(fs.readFileSync(p)),n=[];j.weightsManifest.forEach(m=>m.paths=m.paths.map(x=>{n.push(x);return x+'.bin'}));fs.writeFileSync(p,JSON.stringify(j));fs.writeFileSync('names.txt',n.join(' '))"
+          for f in $(cat names.txt); do curl -fsSL -o www/model/$f.bin $B/$f; done
           npm init -y
-
-          npm install \
-            @capacitor/core@6 \
-            @capacitor/cli@6 \
-            @capacitor/android@6
-
-          cat > capacitor.config.json <<'CONFIG'
-          {
-            "appId": "com.motionlock.app",
-            "appName": "动态锁定",
-            "webDir": "www"
-          }
-          CONFIG
-
-      - name: Generate Android project
-        shell: bash
-        run: |
-          set -euo pipefail
-
+          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          echo '{"appId":"com.motionlock.app","appName":"动态锁定","webDir":"www"}' > capacitor.config.json
           npx cap add android
-
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-
-          test -f "$MANIFEST"
-
-          sed -i \
-            '0,/<activity/s//<activity android:screenOrientation="landscape"/' \
-            "$MANIFEST"
-
-          sed -i \
-            's#<application#<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<application#' \
-            "$MANIFEST"
-
+          sed -i '0,/<activity/s//<activity android:screenOrientation="landscape"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.VIBRATE" />\n<application#' android/app/src/main/AndroidManifest.xml
           cat > android/app/src/main/java/com/motionlock/app/MainActivity.java <<'JAVA'
           package com.motionlock.app;
-
           import android.os.Build;
           import android.os.Bundle;
           import android.view.View;
           import android.view.WindowManager;
           import com.getcapacitor.BridgeActivity;
-
           public class MainActivity extends BridgeActivity {
-            @Override
-            public void onCreate(Bundle savedInstanceState) {
-              super.onCreate(savedInstanceState);
-              hideSystemUI();
-            }
-
-            @Override
-            public void onWindowFocusChanged(boolean hasFocus) {
-              super.onWindowFocusChanged(hasFocus);
-              if (hasFocus) hideSystemUI();
-            }
-
-            private void hideSystemUI() {
-              getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-              );
-
+            @Override public void onCreate(Bundle b) { super.onCreate(b); hide(); }
+            @Override public void onWindowFocusChanged(boolean f) { super.onWindowFocusChanged(f); if (f) hide(); }
+            private void hide() {
+              getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
               if (Build.VERSION.SDK_INT >= 28) {
-                WindowManager.LayoutParams params =
-                  getWindow().getAttributes();
-
-                params.layoutInDisplayCutoutMode =
-                  WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-
-                getWindow().setAttributes(params);
+                WindowManager.LayoutParams p = getWindow().getAttributes();
+                p.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                getWindow().setAttributes(p);
               }
-
-              getWindow().addFlags(
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-              );
+              WindowManager.LayoutParams q = getWindow().getAttributes();
+              q.preferredRefreshRate = 120f;
+              getWindow().setAttributes(q);
+              getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             }
           }
           JAVA
-
-      - name: Build APK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd android
-          chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
-
-          test -s app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Publish APK
-        uses: softprops/action-gh-release@v2
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: 动态锁定 - 最新构建
-          body: |
-            自动构建的 Android Debug APK。
           files: android/app/build/outputs/apk/debug/app-debug.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
