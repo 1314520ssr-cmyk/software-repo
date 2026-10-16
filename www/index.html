@@ -97,7 +97,7 @@ function fit(P){
     const S2=P.filter((p,i)=>res[i]<=th);if(S2.length<6)break;S=S2;
   }
   return {M:M,ratio:S.length/P.length};
-}
+    }
   /* ---------- 跟踪器：AI 识别框 + 每帧模板跟踪 + 背景运动补偿 ---------- */
 function mkTracker(){
   let prev=null,tracks=[],nid=1,pins=[],eh=[];
@@ -146,9 +146,9 @@ function mkTracker(){
     hpush(k,t);
   }
   function mk(d,cx,cy,t){
-    const k={id:nid++,x:cx-d.w/2,y:cy-d.h/2,w:d.w,h:d.h,cls:d.cls,vote:{},score:d.score,nd:1,miss:0,rx:0,ry:0,vx:0,vy:0,mv:false,on:0,at:0,q:0,bad:0,hist:[],tpl:null};
+    const k={id:nid++,x:cx-d.w/2,y:cy-d.h/2,w:d.w,h:d.h,cls:d.cls,vote:{},score:d.score,nd:1,ad:t,miss:0,rx:0,ry:0,vx:0,vy:0,mv:false,on:0,at:0,q:0,bad:0,hist:[],tpl:null};
     k.vote[d.cls]=d.score;k.tpl=mkTpl(k);hpush(k,t);return k;
-  }
+      }
   return {
     pin:ids=>{pins=ids},
     frame:m=>{
@@ -168,7 +168,7 @@ function mkTracker(){
       tracks.forEach(k=>stepTrack(k,cu,E,dt,w,h,t));
       tracks=tracks.filter(k=>k.bad<45&&k.x+k.w>-w*.3&&k.x<w*1.3&&k.y+k.h>-h*.3&&k.y<h*1.3);
       prev=cu;
-      return {t:t,st:st,tracks:tracks.filter(k=>(k.nd>=2||k.score>=.6)&&k.bad<4).map(k=>({id:k.id,x:k.x,y:k.y,w:k.w,h:k.h,cls:k.cls,sc:k.score,mv:k.mv,at:k.at,vx:k.vx,vy:k.vy}))};
+      return {t:t,st:st,tracks:tracks.filter(k=>(k.nd>=2||k.score>=.6)&&k.bad<4).map(k=>({id:k.id,x:k.x,y:k.y,w:k.w,h:k.h,cls:k.cls,sc:k.score,mv:k.mv,at:k.at,ad:k.ad,vx:k.vx,vy:k.vy}))};
     },
     det:(list,tc,cv)=>{
       if(!prev)return;
@@ -194,7 +194,7 @@ function mkTracker(){
         for(const c2 in k.vote)k.vote[c2]*=.85;
         k.vote[d.cls]=(k.vote[d.cls]||0)+d.score;
         let bc=d.cls,bv=-1;for(const c2 in k.vote)if(k.vote[c2]>bv){bv=k.vote[c2];bc=c2}
-        k.cls=bc;k.score=Math.max(k.score*.9,d.score);k.nd++;k.miss=0;k.tpl=mkTpl(k);
+        k.cls=bc;k.score=Math.max(k.score*.9,d.score);k.nd++;k.ad=tc;k.miss=0;k.tpl=mkTpl(k);
       });
       const t=prev.t,es=egoSince(tc),n0=tracks.length;
       list.forEach((d,j)=>{
@@ -209,10 +209,10 @@ function mkTracker(){
       });
     }
   };
-}
+          }
   /* ---------- 主线程：状态 ---------- */
-const AW=384,TILES=[null,[0,0],null,[1,0],null,[0,1],null,[1,1]];
-let AH=216,VW=0,VH=0,W=0,H=0,s0=1,z=1,cvx=0,cvy=0,gyro=0,mstat='',sel=0,lk=0,zm=0,zlost=0,model=null,ai='AI：未加载',aps=0,na=0,dps=0,nd=0,nt=0,note='',T0=0,busy=false,wk=null,trk=null,showAll=false,ti=0;
+const AW=384,TILES=[[0,0],[1,0],[0,1],[1,1]],pend=new Map();
+let AH=216,VW=0,VH=0,W=0,H=0,s0=1,z=1,cvx=0,cvy=0,gyro=0,mstat='',sel=0,lk=0,zm=0,zlost=0,model=null,ai='AI：未加载',aps=0,na=0,dps=0,nd=0,nt=0,note='',T0=0,busy=false,wk=null,trk=null,showAll=false,aw=null,aiReady=false,inflight=false,jc=0,fj=0,jid=0;
 const TV=new Map(),vid=$('v'),cvs=$('c'),X=cvs.getContext('2d',{desynchronized:true}),ac=document.createElement('canvas'),Cx=ac.getContext('2d',{willReadFrequently:true}),oc=document.createElement('canvas'),Zc=oc.getContext('2d');
 function rs(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cvs.width=W*d;cvs.height=H*d;X.setTransform(d,0,0,d,0,0);if(VW)s0=Math.max(W/VW,H/VH)}
 addEventListener('resize',rs);rs();
@@ -245,7 +245,7 @@ function onTr(r){
     let v=TV.get(o.id);
     if(!v){v={id:o.id,cx:0,cy:0,sd:0,first:true,dist:0};TV.set(o.id,v)}
     v.tx=(o.x+o.w/2)*k;v.ty=(o.y+o.h/2)*k;v.ts=Math.max(o.w,o.h)*k*1.04+3;v.vx=o.vx*k;v.vy=o.vy*k;v.t=r.t;
-    v.cls=o.cls;v.sc=o.sc;v.mv=o.mv;v.at=o.at;v.w=o.w*k;v.h=o.h*k;seen.add(o.id);
+    v.cls=o.cls;v.sc=o.sc;v.mv=o.mv;v.at=o.at;v.ai=o.ad||0;v.w=o.w*k;v.h=o.h*k;seen.add(o.id);
     if(v.first){v.cx=v.tx;v.cy=v.ty;v.sd=v.ts;v.first=false}
     const z0=SZ[o.cls];
     if(z0){const px=z0[1]==='h'?v.h:v.w,m=z0[0]*VW*.77/px;v.dist=v.dist?v.dist*.8+m*.2:m}
@@ -260,24 +260,95 @@ function cap(){
   if(wk){busy=true;wk.postMessage(m,[m.buf])}else onTr(trk.frame(m));
 }
 function vf(){cap();vid.requestVideoFrameCallback(vf)}
-
-/* ---------- AI 识别：整帧与分块轮流，尽量连续运行 ---------- */
-async function detLoop(){
-  if(!model||!VW){setTimeout(detLoop,100);return}
-  const tile=TILES[ti++%TILES.length];
-  let sx=0,sy=0,sw=VW,sh=VH;
-  if(tile){sw=VW*.6;sh=VH*.6;sx=tile[0]*(VW-sw);sy=tile[1]*(VH-sh)}
-  const tc=performance.now();
-  try{
-    oc.width=480;oc.height=Math.round(480*sh/sw);Zc.drawImage(vid,sx,sy,sw,sh,0,0,oc.width,oc.height);
-    const res=await model.detect(oc,20,.35),f=AW/VW,kx=sw/oc.width*f,ky=sh/oc.height*f;
-    const list=res.map(r=>({x:r.bbox[0]*kx+sx*f,y:r.bbox[1]*ky+sy*f,w:r.bbox[2]*kx,h:r.bbox[3]*ky,cls:r.class,score:r.score}));
-    const cv=[sx*f,sy*f,(sx+sw)*f,(sy+sh)*f];
-    if(wk)wk.postMessage({k:'d',list:list,t:tc,cv:cv});else trk.det(list,tc,cv);
-    nd++;
-  }catch(e){}
-  setTimeout(detLoop,0);
+  /* ---------- AI 识别：跟着锁定框走（优先识别被选中的、在移动的框，其余时间扫全屏找新目标）---------- */
+function roiJob(v){
+  const S=Math.min(VH,Math.max(160,v.sd*2.2)),x=Math.max(0,Math.min(VW-S,v.cx-S/2)),y=Math.max(0,Math.min(VH-S,v.cy-S/2));
+  return {x:x,y:y,w:S,h:S,cw:300,ch:300,roi:true};
 }
+function scanJob(){
+  const n=fj++;
+  if(n%3===2){const t=TILES[((n/3)|0)%4],w=VW*.6,h=VH*.6;return {x:t[0]*(VW-w),y:t[1]*(VH-h),w:w,h:h,cw:480,ch:270,roi:false}}
+  return {x:0,y:0,w:VW,h:VH,cw:480,ch:270,roi:false};
+}
+function nextJob(now){
+  const vs=[...TV.values()],last=v=>Math.max(v.ai||0,v.jt||0);
+  let c=vs.filter(v=>(v.id===lk||v.id===zm||v.id===sel)&&now-last(v)>100).sort((a,b)=>last(a)-last(b))[0];
+  if(!c&&jc%4!==3)c=vs.filter(v=>(v.mv||now-v.at<2000)&&now-last(v)>280).sort((a,b)=>last(a)-last(b))[0];
+  jc++;
+  if(c){c.jt=now;return roiJob(c)}
+  return scanJob();
+}
+function sendDet(j,tc,res){
+  const f=AW/VW,kx=j.w/j.cw*f,ky=j.h/j.ch*f;
+  let list=res.filter(r=>!j.roi||(r.bbox[0]>2&&r.bbox[1]>2&&r.bbox[0]+r.bbox[2]<j.cw-2&&r.bbox[1]+r.bbox[3]<j.ch-2));
+  list=list.map(r=>({x:r.bbox[0]*kx+j.x*f,y:r.bbox[1]*ky+j.y*f,w:r.bbox[2]*kx,h:r.bbox[3]*ky,cls:r.class,score:r.score}));
+  const cv=[j.x*f,j.y*f,(j.x+j.w)*f,(j.y+j.h)*f];
+  if(wk)wk.postMessage({k:'d',list:list,t:tc,cv:cv});else trk.det(list,tc,cv);
+  nd++;
+}
+function aiTick(){
+  if(!VW||inflight||!(aiReady||model)){setTimeout(aiTick,inflight?4:100);return}
+  const j=nextJob(performance.now()),tc=performance.now();
+  oc.width=j.cw;oc.height=j.ch;Zc.drawImage(vid,j.x,j.y,j.w,j.h,0,0,j.cw,j.ch);
+  inflight=true;
+  if(aw){
+    const d=Zc.getImageData(0,0,j.cw,j.ch),id=++jid;pend.set(id,{j:j,tc:tc});
+    aw.postMessage({k:'run',id:id,buf:d.data.buffer,w:j.cw,h:j.ch},[d.data.buffer]);
+  }else{
+    model.detect(oc,20,.35).then(r=>{sendDet(j,tc,r);inflight=false;setTimeout(aiTick,0)}).catch(()=>{inflight=false;setTimeout(aiTick,20)});
+  }
+}
+async function mainAI(){
+  try{
+    try{tf.env().set('WEBGL_FORCE_F16_TEXTURES',true)}catch(e){}
+    if(!(await tf.setBackend('webgl')))await tf.setBackend('cpu');
+    await tf.ready();
+    model=await cocoSsd.load({base:'lite_mobilenet_v2',modelUrl:'model/model.json'});
+    oc.width=480;oc.height=270;await model.detect(oc,1,.5);
+    ai='AI：就绪（主线程）';
+  }catch(e){ai='AI不可用：'+(e&&e.message||e)}
+}
+function fallbackAI(msg){
+  if(aw){try{aw.terminate()}catch(e){}aw=null}
+  inflight=false;pend.clear();
+  if(model)return;
+  ai='AI：后台线程不可用（'+msg+'），改用主线程…';mainAI();
+}
+function mkAIWorker(){
+  try{
+    const base=new URL('./',location.href).href;
+    const src=`importScripts("${base}tf.min.js","${base}coco.min.js");
+let model=null;
+onmessage=async e=>{
+  const m=e.data;
+  if(m.k==="init"){
+    try{
+      try{tf.env().set("WEBGL_FORCE_F16_TEXTURES",true)}catch(x){}
+      if(!(await tf.setBackend("webgl")))throw new Error("webgl");
+      await tf.ready();
+      model=await cocoSsd.load({base:"lite_mobilenet_v2",modelUrl:"${base}model/model.json"});
+      await model.detect(new ImageData(300,300),1,.5);
+      postMessage({k:"ready"});
+    }catch(x){postMessage({k:"err",msg:String(x&&x.message||x)})}
+  }else if(m.k==="run"){
+    try{
+      const r=await model.detect(new ImageData(new Uint8ClampedArray(m.buf),m.w,m.h),20,.35);
+      postMessage({k:"res",id:m.id,res:r.map(q=>({bbox:q.bbox,class:q.class,score:q.score}))});
+    }catch(x){postMessage({k:"res",id:m.id,res:[]})}
+  }
+};`;
+    aw=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+    aw.onmessage=e=>{
+      const m=e.data;
+      if(m.k==='ready'){aiReady=true;ai='AI：就绪（后台线程）'}
+      else if(m.k==='err')fallbackAI(m.msg);
+      else if(m.k==='res'){const p=pend.get(m.id);pend.delete(m.id);if(p)sendDet(p.j,p.tc,m.res);inflight=false;setTimeout(aiTick,0)}
+    };
+    aw.onerror=e=>fallbackAI(e&&e.message||'错误');
+    aw.postMessage({k:'init'});
+    setTimeout(()=>{if(aw&&!aiReady)fallbackAI('加载超时')},30000);
+  }catch(e){fallbackAI(e&&e.message||'无法创建')}
+  }
   /* ---------- 显示与交互 ---------- */
 const S=(x,y)=>[W/2+(x-cvx)*s0*z,H/2+(y-cvy)*s0*z];
 const vis=now=>{const a=[];TV.forEach(v=>{if(zm?v.id===zm:(showAll||v.mv||now-v.at<2000||v.id===lk||v.id===sel))a.push(v)});return a};
@@ -359,16 +430,8 @@ $('go').onclick=async()=>{
     $('ov').style.display='none';
     mkWorker();
     if(vid.requestVideoFrameCallback)vid.requestVideoFrameCallback(vf);else setInterval(cap,16);
-    setInterval(()=>{aps=na;na=0;dps=nd;nd=0},1000);ui();detLoop();
-    ai='AI：加载中…';
-    try{
-      try{tf.env().set('WEBGL_FORCE_F16_TEXTURES',true)}catch(e){}
-      if(!(await tf.setBackend('webgl')))await tf.setBackend('cpu');
-      await tf.ready();
-      model=await cocoSsd.load({base:'lite_mobilenet_v2',modelUrl:'model/model.json'});
-      oc.width=480;oc.height=270;await model.detect(oc,1,.5);
-      ai='AI：就绪';
-    }catch(e){ai='AI不可用：'+(e&&e.message||e)}
+    setInterval(()=>{aps=na;na=0;dps=nd;nd=0},1000);ui();
+    ai='AI：加载中…';mkAIWorker();aiTick();
   }catch(e){say('出错：'+(e&&e.message||e));b.disabled=false;b.textContent='重试'}
 };
 requestAnimationFrame(frame);
