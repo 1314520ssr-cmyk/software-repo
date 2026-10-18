@@ -6,8 +6,7 @@
 <title>动态锁定</title>
 <style>
 *{margin:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
-html,body{height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,sans-serif}
-#v{position:fixed;left:0;top:0;transform-origin:0 0;will-change:transform}
+html,body{height:100%;overflow:hidden;background:transparent;color:#fff;font-family:system-ui,sans-serif}
 #c{position:fixed;inset:0;width:100%;height:100%}
 #bt{position:fixed;right:calc(18px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:12px}
 #bt button{width:112px;height:54px;border-radius:12px;border:2px solid #fff;background:rgba(0,0,0,.5);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px}
@@ -21,202 +20,24 @@ html,body{height:100%;overflow:hidden;background:#000;color:#fff;font-family:sys
 </style>
 </head>
 <body>
-<video id="v" playsinline muted autoplay></video>
 <canvas id="c"></canvas>
 <div id="bt">
 <button id="bl"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>锁定</span></button>
 <button id="bz"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="6"/><path d="M15 15l5 5M10 7v6M7 10h6"/></svg><span>变焦</span></button>
 <button id="bs"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg><span>仅运动</span></button>
 </div>
-<div id="ov"><div style="font-size:26px;font-weight:800">动态锁定</div><div id="ms">AI 识别画面里的人、车、动物等物体，只框出正在移动的。点方框选目标，再按右边按钮锁定或变焦。</div><button id="go">开始</button></div>
-<script src="tf.min.js"></script>
-<script src="coco.min.js"></script>
+<div id="ov"><div style="font-size:26px;font-weight:800">动态锁定</div><div id="ms">原生相机加 AI 识别画面里的人、车、动物等物体，只框出正在移动的。点方框选目标，再按右边按钮锁定或变焦。</div><button id="go">开始</button></div>
 <script>
 const $=i=>document.getElementById(i);
 const CN=('person:人,bicycle:自行车,car:轿车,motorcycle:摩托车,airplane:飞机,bus:公交车,train:火车,truck:卡车,boat:船,traffic light:红绿灯,fire hydrant:消防栓,stop sign:停车标志,parking meter:停车计时器,bench:长椅,bird:鸟,cat:猫,dog:狗,horse:马,sheep:羊,cow:牛,elephant:大象,bear:熊,zebra:斑马,giraffe:长颈鹿,backpack:背包,umbrella:雨伞,handbag:手提包,tie:领带,suitcase:行李箱,frisbee:飞盘,skis:滑雪板,snowboard:单板,sports ball:球,kite:风筝,baseball bat:球棒,baseball glove:棒球手套,skateboard:滑板,surfboard:冲浪板,tennis racket:网球拍,bottle:瓶子,wine glass:酒杯,cup:杯子,fork:叉子,knife:刀,spoon:勺子,bowl:碗,banana:香蕉,apple:苹果,sandwich:三明治,orange:橙子,broccoli:西兰花,carrot:胡萝卜,hot dog:热狗,pizza:披萨,donut:甜甜圈,cake:蛋糕,chair:椅子,couch:沙发,potted plant:盆栽,bed:床,dining table:餐桌,toilet:马桶,tv:电视,laptop:笔记本电脑,mouse:鼠标,remote:遥控器,keyboard:键盘,cell phone:手机,microwave:微波炉,oven:烤箱,toaster:烤面包机,sink:水槽,refrigerator:冰箱,book:书,clock:时钟,vase:花瓶,scissors:剪刀,teddy bear:玩具熊,hair drier:吹风机,toothbrush:牙刷').split(',').reduce((m,s)=>{const p=s.split(':');m[p[0]]=p[1];return m},{});
 const SZ={person:[1.7,'h'],car:[1.8,'w'],truck:[2.5,'w'],bus:[2.5,'w'],bicycle:[1.7,'w'],motorcycle:[2,'w'],dog:[.5,'h'],cat:[.3,'h'],horse:[1.6,'h'],cow:[1.4,'h']};
-  /* ---------- 图像工具（也会在后台线程中使用）---------- */
-function toGray(d,n){const g=new Uint8Array(n);for(let i=0,j=0;j<n;i+=4,j++)g[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;return g}
-function blur(g,w,h){
-  const o=new Uint8Array(g.length);
-  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;o[i]=(g[i-w-1]+g[i-w]+g[i-w+1]+g[i-1]+g[i]+g[i+1]+g[i+w-1]+g[i+w]+g[i+w+1])/9}
-  return o;
-}
-function half(g,w,h){
-  const a=w>>1,b=h>>1,o=new Uint8Array(a*b);
-  for(let y=0;y<b;y++)for(let x=0;x<a;x++){const i=2*y*w+2*x;o[y*a+x]=(g[i]+g[i+1]+g[i+w]+g[i+w+1])>>2}
-  return o;
-}
-function bil(g,w,h,x,y){
-  if(x<0)x=0;else if(x>w-1.001)x=w-1.001;if(y<0)y=0;else if(y>h-1.001)y=h-1.001;
-  const ix=x|0,iy=y|0,fx=x-ix,fy=y-iy,i=iy*w+ix;
-  return g[i]*(1-fx)*(1-fy)+g[i+1]*fx*(1-fy)+g[i+w]*(1-fx)*fy+g[i+w+1]*fx*fy;
-}
-function patch(g,w,h,b,N){
-  const o=new Float32Array(N*N);
-  for(let j=0;j<N;j++)for(let i=0;i<N;i++)o[j*N+i]=bil(g,w,h,b.x+(i+.5)*b.w/N,b.y+(j+.5)*b.h/N);
-  return o;
-}
-function flow(a,b,w,h,ex){
-  const BS=8,R=6,P=[];
-  for(let y=R;y<=h-BS-R;y+=10)for(let x=R;x<=w-BS-R;x+=10){
-    let skip=false;
-    for(let k=0;k<ex.length;k++){const e=ex[k];if(x+4>e[0]&&x+4<e[2]&&y+4>e[1]&&y+4<e[3]){skip=true;break}}
-    if(skip)continue;
-    let m=0;for(let j=0;j<BS;j++)for(let i=0;i<BS;i++)m+=a[(y+j)*w+x+i];m/=64;
-    let v=0;for(let j=0;j<BS;j++)for(let i=0;i<BS;i++){const e=a[(y+j)*w+x+i]-m;v+=e*e}
-    if(v<64*25)continue;
-    const sad=(dx,dy)=>{let s=0;for(let j=0;j<BS;j++){const ra=(y+j)*w+x,rb=(y+j+dy)*w+x+dx;for(let i=0;i<BS;i++)s+=Math.abs(a[ra+i]-b[rb+i])}return s};
-    let best=sad(0,0),bx=0,by=0;
-    for(let dy=-R;dy<=R;dy++)for(let dx=-R;dx<=R;dx++){if(!dx&&!dy)continue;const s=sad(dx,dy);if(s<best){best=s;bx=dx;by=dy}}
-    if(best>=64*14)continue;
-    let fx=0,fy=0;
-    if(bx>-R&&bx<R&&by>-R&&by<R){
-      const l=sad(bx-1,by),r=sad(bx+1,by),u=sad(bx,by-1),d=sad(bx,by+1),a=l+r-2*best,c=u+d-2*best;
-      if(a>1e-6)fx=Math.max(-.5,Math.min(.5,(l-r)/(2*a)));if(c>1e-6)fy=Math.max(-.5,Math.min(.5,(u-d)/(2*c)));
-    }
-    P.push([x+4-w/2,y+4-h/2,bx+fx,by+fy]);
-  }
-  return P;
-}
-function ls(P){
-  let n=P.length,sx=0,sy=0,sxx=0,sxy=0,syy=0,d0=0,d1=0,d2=0,e0=0,e1=0,e2=0;
-  for(const q of P){const x=q[0],y=q[1],u=q[2],v=q[3];sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;syy+=y*y;d0+=u;d1+=x*u;d2+=y*u;e0+=v;e1+=x*v;e2+=y*v}
-  const M=[[n,sx,sy],[sx,sxx,sxy],[sy,sxy,syy]];
-  const det=m=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
-  const D=det(M);if(Math.abs(D)<1e-6)return null;
-  const sol=r=>[0,1,2].map(c=>det(M.map((row,i)=>row.map((v,j)=>j===c?r[i]:v)))/D);
-  return sol([d0,d1,d2]).concat(sol([e0,e1,e2]));
-}
-function fit(P){
-  let S=P,M=null;
-  for(let it=0;it<5;it++){
-    M=ls(S);if(!M)return null;
-    const res=P.map(p=>Math.hypot(p[2]-(M[0]+M[1]*p[0]+M[2]*p[1]),p[3]-(M[3]+M[4]*p[0]+M[5]*p[1])));
-    const so=res.slice().sort((a,b)=>a-b),th=Math.max(.7,2.5*so[so.length>>1]);
-    const S2=P.filter((p,i)=>res[i]<=th);if(S2.length<6)break;S=S2;
-  }
-  return {M:M,ratio:S.length/P.length};
-    }
-  /* ---------- 跟踪器：AI 识别框 + 每帧模板跟踪 + 背景运动补偿 ---------- */
-function mkTracker(){
-  let prev=null,tracks=[],nid=1,pins=[],eh=[];
-  const N=12,R=7,SIM={car:1,truck:1,bus:1};
-  const ST={chair:1,couch:1,bench:1,bed:1,'dining table':1,'potted plant':1,tv:1,refrigerator:1,oven:1,microwave:1,sink:1,toilet:1,clock:1,vase:1,book:1,laptop:1,keyboard:1,'traffic light':1,'stop sign':1,'fire hydrant':1,'parking meter':1};
-  const iou=(a,b)=>{const x0=Math.max(a.x,b.x),y0=Math.max(a.y,b.y),x1=Math.min(a.x+a.w,b.x+b.w),y1=Math.min(a.y+a.h,b.y+b.h),i=Math.max(0,x1-x0)*Math.max(0,y1-y0);return i/(a.w*a.h+b.w*b.h-i||1)};
-  const hAt=(k,tc)=>{
-    const h=k.hist;if(tc<=h[0][0])return h[0];
-    for(let i=h.length-1;i>=0;i--)if(h[i][0]<=tc){const a=h[i],b=h[i+1]||a,f=b[0]>a[0]?(tc-a[0])/(b[0]-a[0]):0;return [tc,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f,a[3]+(b[3]-a[3])*f,a[4]+(b[4]-a[4])*f]}
-    return h[0];
-  };
-  const egoSince=tc=>{let sx=0,sy=0;for(const e of eh)if(e[0]>tc){sx+=e[1];sy+=e[2]}return [sx,sy]};
-  const hpush=(k,t)=>{k.hist.push([t,k.x+k.w/2,k.y+k.h/2,k.w,k.h]);while(k.hist.length>2&&t-k.hist[0][0]>2500)k.hist.shift()};
-  const mkTpl=k=>patch(prev.s,prev.hw,prev.hh,{x:k.x/2,y:k.y/2,w:k.w/2,h:k.h/2},N);
-  const isPin=k=>pins.indexOf(k.id)>=0;
-  function stepTrack(k,cu,E,dt,w,h,t){
-    const hw=cu.hw,hh=cu.hh,cx=k.x+k.w/2,cy=k.y+k.h/2;
-    const ex=E?E[0]+E[1]*(cx-w/2)+E[2]*(cy-h/2):0,ey=E?E[3]+E[4]*(cx-w/2)+E[5]*(cy-h/2):0;
-    const pcx=cx+ex+k.rx*dt,pcy=cy+ey+k.ry*dt,bw=k.w/2,bh=k.h/2,x0=pcx/2-bw/2,y0=pcy/2-bh/2;
-    if(k.oc>0&&k.oc<60){k.x=pcx-k.w/2;k.y=pcy-k.h/2;hpush(k,t);return}
-    const G=new Float32Array((2*R+1)*(2*R+1));let best=1e9,bc=1e9,bi=0,bj=0;
-    for(let j=-R;j<=R;j++)for(let i=-R;i<=R;i++){
-      let s=0;
-      for(let v=0;v<N;v++){const sy=y0+j+(v+.5)*bh/N;for(let u=0;u<N;u++)s+=Math.abs(k.tpl[v*N+u]-bil(cu.s,hw,hh,x0+i+(u+.5)*bw/N,sy))}
-      G[(j+R)*(2*R+1)+i+R]=s;const c2=s+12*(i*i+j*j);if(c2<bc){bc=c2;best=s;bi=i;bj=j}
-    }
-    let sx=0,sy=0;
-    if(bi>-R&&bi<R&&bj>-R&&bj<R){
-      const W2=2*R+1,c=G[(bj+R)*W2+bi+R],l=G[(bj+R)*W2+bi+R-1],r=G[(bj+R)*W2+bi+R+1],u=G[(bj+R-1)*W2+bi+R],d=G[(bj+R+1)*W2+bi+R];
-      const a=l+r-2*c,b=u+d-2*c;
-      if(a>1e-6)sx=Math.max(-.5,Math.min(.5,(l-r)/(2*a)));if(b>1e-6)sy=Math.max(-.5,Math.min(.5,(u-d)/(2*b)));
-    }
-    k.q=best/(N*N*255);
-    if(k.q>=.13){k.bad++;k.x=pcx-k.w/2;k.y=pcy-k.h/2}
-    else{k.bad=0;k.x=(pcx/2+bi+sx)*2-k.w/2;k.y=(pcy/2+bj+sy)*2-k.h/2;}
-    const dx=(k.x+k.w/2)-cx,dy=(k.y+k.h/2)-cy;
-    k.vx=k.vx*.6+dx/dt*.4;k.vy=k.vy*.6+dy/dt*.4;
-    if(E&&k.q<.13){
-      k.rx=k.rx*.65+(dx-ex)/dt*.35;k.ry=k.ry*.65+(dy-ey)/dt*.35;
-      const sp=Math.hypot(k.rx,k.ry),on=(ST[k.cls]?30:14)*(w/384);
-      if(sp>on)k.on=Math.min(1.2,k.on+dt);else if(sp<on*.45)k.on=Math.max(0,k.on-dt*.6);
-      if(!k.mv&&k.on>=.2)k.mv=true;else if(k.mv&&k.on<=0)k.mv=false;
-      if(k.mv)k.at=t;
-    }
-    if(k.q<.1){const p=patch(cu.s,hw,hh,{x:k.x/2,y:k.y/2,w:k.w/2,h:k.h/2},N);for(let i=0;i<p.length;i++)k.tpl[i]=k.tpl[i]*.85+p[i]*.15}
-    hpush(k,t);
-  }
-  function mk(d,cx,cy,t){
-    const k={id:nid++,x:cx-d.w/2,y:cy-d.h/2,w:d.w,h:d.h,cls:d.cls,vote:{},score:d.score,nd:1,ad:t,miss:0,rx:0,ry:0,vx:0,vy:0,mv:false,on:0,at:0,q:0,bad:0,hist:[],tpl:null};
-    k.vote[d.cls]=d.score;k.tpl=mkTpl(k);hpush(k,t);return k;
-      }
-  return {
-    pin:ids=>{pins=ids},
-    frame:m=>{
-      const w=m.w,h=m.h,t=m.t,g=blur(toGray(new Uint8ClampedArray(m.buf),w*h),w,h);
-      const cu={g:g,s:half(g,w,h),t:t,hw:w>>1,hh:h>>1};
-      if(!prev){prev=cu;return null}
-      const dt=Math.max(.008,(t-prev.t)/1000);
-      const ex=tracks.filter(k=>k.mv).map(k=>[(k.x-k.w*.1)/2,(k.y-k.h*.1)/2,(k.x+k.w*1.1)/2,(k.y+k.h*1.1)/2]);
-      const P=flow(prev.s,cu.s,cu.hw,cu.hh,ex),F=P.length>=8?fit(P):null;
-      let E=null,st='';
-      if(m.gy>120)st='注意：手机移动过快，暂停判定';
-      else if(F&&F.ratio>=.45)E=[2*F.M[0],F.M[1],F.M[2],2*F.M[3],F.M[4],F.M[5]];
-      else if(!F&&m.gy<8)E=[0,0,0,0,0,0];
-      else st='注意：背景对不上，暂停判定';
-      if(E){st='背景位移 '+E[0].toFixed(1)+','+E[3].toFixed(1);eh.push([t,E[0],E[3]]);while(eh.length&&t-eh[0][0]>2000)eh.shift()}
-      tracks.forEach(k=>{k.oc=tracks.some(o=>o!==k&&iou(k,o)>.06)?Math.min(60,(k.oc|0)+1):0});
-      tracks.forEach(k=>stepTrack(k,cu,E,dt,w,h,t));
-      tracks=tracks.filter(k=>k.bad<45&&k.x+k.w>-w*.3&&k.x<w*1.3&&k.y+k.h>-h*.3&&k.y<h*1.3);
-      prev=cu;
-      return {t:t,st:st,tracks:tracks.filter(k=>(k.nd>=2||k.score>=.6)&&k.bad<4).map(k=>({id:k.id,x:k.x,y:k.y,w:k.w,h:k.h,cls:k.cls,sc:k.score,mv:k.mv,at:k.at,ad:k.ad,vx:k.vx,vy:k.vy}))};
-    },
-    det:(list,tc,cv)=>{
-      if(!prev)return;
-      const C=[],inCv=k=>{const cx=k.x+k.w/2,cy=k.y+k.h/2;return cx>=cv[0]&&cx<=cv[2]&&cy>=cv[1]&&cy<=cv[3]};
-      tracks.forEach((k,ti)=>{
-        if(!inCv(k))return;
-        const a=hAt(k,tc),hb={x:a[1]-a[3]/2,y:a[2]-a[4]/2,w:a[3],h:a[4]};
-        list.forEach((d,j)=>{
-          const io=iou(hb,d),cd=Math.hypot(a[1]-(d.x+d.w/2),a[2]-(d.y+d.h/2))/Math.max(d.w,d.h,a[3],a[4]);
-          if(io<.2&&cd>.5)return;
-          C.push([1-io+(k.cls&&k.cls!==d.cls&&!(SIM[k.cls]&&SIM[d.cls])?.5:0)+cd*.3,ti,j]);
-        });
-      });
-      C.sort((p,q)=>p[0]-q[0]);
-      const ut=new Set(),ud=new Set();
-      C.forEach(c=>{
-        if(c[0]>1.1||ut.has(c[1])||ud.has(c[2]))return;
-        ut.add(c[1]);ud.add(c[2]);
-        const k=tracks[c[1]],d=list[c[2]],a=hAt(k,tc),cx=k.x+k.w/2,cy=k.y+k.h/2;
-        const nx=d.x+d.w/2+(cx-a[1]),ny=d.y+d.h/2+(cy-a[2]);
-        k.w=k.w*.4+d.w*.6;k.h=k.h*.4+d.h*.6;
-        k.x=k.x*.4+(nx-k.w/2)*.6;k.y=k.y*.4+(ny-k.h/2)*.6;
-        for(const c2 in k.vote)k.vote[c2]*=.85;
-        k.vote[d.cls]=(k.vote[d.cls]||0)+d.score;
-        let bc=d.cls,bv=-1;for(const c2 in k.vote)if(k.vote[c2]>bv){bv=k.vote[c2];bc=c2}
-        k.cls=bc;k.score=Math.max(k.score*.9,d.score);k.nd++;k.ad=tc;k.miss=0;k.tpl=mkTpl(k);
-      });
-      const t=prev.t,es=egoSince(tc),n0=tracks.length;
-      list.forEach((d,j)=>{
-        if(ud.has(j)||d.score<.4)return;
-        const box={x:d.x+es[0],y:d.y+es[1],w:d.w,h:d.h};
-        if(tracks.some(k=>iou(k,box)>.5))return;
-        tracks.push(mk(d,box.x+box.w/2,box.y+box.h/2,t));
-      });
-      tracks=tracks.filter((k,ti)=>{
-        if(ti>=n0||ut.has(ti)||!inCv(k))return true;
-        k.miss++;return k.miss<(isPin(k)?10:k.mv?5:3);
-      });
-    }
-  };
-          }
-  /* ---------- 主线程：状态 ---------- */
-const AW=384,TILES=[[0,0],[1,0],[0,1],[1,1]],pend=new Map();
-let AH=216,VW=0,VH=0,W=0,H=0,s0=1,z=1,cvx=0,cvy=0,gyro=0,mstat='',sel=0,lk=0,zm=0,zlost=0,model=null,ai='AI：未加载',aps=0,na=0,dps=0,nd=0,nt=0,note='',T0=0,busy=false,wk=null,trk=null,showAll=false,aw=null,aiReady=false,inflight=false,jc=0,fj=0,jid=0;
-const TV=new Map(),vid=$('v'),cvs=$('c'),X=cvs.getContext('2d',{desynchronized:true}),ac=document.createElement('canvas'),Cx=ac.getContext('2d',{willReadFrequently:true}),oc=document.createElement('canvas'),Zc=oc.getContext('2d');
-function rs(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cvs.width=W*d;cvs.height=H*d;X.setTransform(d,0,0,d,0,0);if(VW)s0=Math.max(W/VW,H/VH)}
+
+/* ---------- 状态（摄像头、AI 和跟踪都在原生部分运行，这里只负责显示）---------- */
+const VW=1280,VH=720;
+let W=0,H=0,s0=1,z=1,cvx=VW/2,cvy=VH/2,mstat='',sel=0,lk=0,zm=0,zlost=0,ai='AI：加载中…',aps=0,dps=0,nt=0,note='',T0=0,showAll=false,lastV='';
+const TV=new Map(),cvs=$('c'),X=cvs.getContext('2d',{desynchronized:true});
+function rs(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cvs.width=W*d;cvs.height=H*d;X.setTransform(d,0,0,d,0,0);s0=Math.max(W/VW,H/VH)}
 addEventListener('resize',rs);rs();
-addEventListener('devicemotion',e=>{const r=e.rotationRate;if(r)gyro=Math.hypot(r.alpha||0,r.beta||0,r.gamma||0)});
 const say=t=>$('ms').textContent=t;
 function toast(t){note=t;nt=2}
 function ui(){
@@ -224,132 +45,25 @@ function ui(){
   $('bz').lastChild.textContent=zm?'取消变焦':'变焦';$('bz').className=zm?'on':'';
   $('bs').lastChild.textContent=showAll?'显示全部':'仅运动';
 }
-function pins(){const ids=[lk,zm,sel].filter(Boolean);if(wk)wk.postMessage({k:'p',ids:ids});else if(trk)trk.pin(ids)}
-
-/* ---------- 后台线程 ---------- */
-function mkWorker(){
-  trk=mkTracker();
-  try{
-    const src=[toGray,blur,half,bil,patch,flow,ls,fit,mkTracker].map(f=>f.toString()).join('\n')+
-      '\nconst T=mkTracker();onmessage=e=>{const m=e.data;if(m.k==="f")postMessage({k:"t",r:T.frame(m),t:m.t});else if(m.k==="d")T.det(m.list,m.t,m.cv);else if(m.k==="p")T.pin(m.ids)};';
-    wk=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
-    wk.onmessage=e=>{busy=false;onTr(e.data.r)};
-    wk.onerror=()=>{wk=null;busy=false};
-  }catch(e){wk=null}
-}
-function onTr(r){
-  if(!r)return;
-  na++;mstat=r.st;
-  const k=VW/AW,seen=new Set();
-  r.tracks.forEach(o=>{
+function pins(){const ids=[lk,zm,sel].filter(Boolean);if(window.Android&&Android.pins)Android.pins(ids.join(','))}
+  window.nativeTracks=function(r){
+  const now=performance.now(),seen=new Set();
+  mstat=r.st;ai=r.ai;aps=r.aps;dps=r.dps;
+  r.tr.forEach(o=>{
     let v=TV.get(o.id);
     if(!v){v={id:o.id,cx:0,cy:0,sd:0,first:true,dist:0};TV.set(o.id,v)}
-    v.tx=(o.x+o.w/2)*k;v.ty=(o.y+o.h/2)*k;v.ts=Math.max(o.w,o.h)*k*1.04+3;v.vx=o.vx*k;v.vy=o.vy*k;v.t=r.t;
-    v.cls=o.cls;v.sc=o.sc;v.mv=o.mv;v.at=o.at;v.ai=o.ad||0;v.w=o.w*k;v.h=o.h*k;seen.add(o.id);
+    v.tx=o.x+o.w/2;v.ty=o.y+o.h/2;v.ts=Math.max(o.w,o.h)*1.04+3;v.vx=o.vx;v.vy=o.vy;v.t=now;
+    v.cls=o.c;v.sc=o.s;v.mv=!!o.m;v.at=o.a>=0?now-o.a:-1e9;v.w=o.w;v.h=o.h;seen.add(o.id);
     if(v.first){v.cx=v.tx;v.cy=v.ty;v.sd=v.ts;v.first=false}
-    const z0=SZ[o.cls];
+    const z0=SZ[o.c];
     if(z0){const px=z0[1]==='h'?v.h:v.w,m=z0[0]*VW*.77/px;v.dist=v.dist?v.dist*.8+m*.2:m}
   });
   TV.forEach((v,id)=>{if(!seen.has(id))TV.delete(id)});
-}
-function cap(){
-  if(busy||!VW||vid.readyState<2)return;
-  const t=performance.now();
-  Cx.drawImage(vid,0,0,AW,AH);
-  const d=Cx.getImageData(0,0,AW,AH),m={k:'f',buf:d.data.buffer,w:AW,h:AH,gy:gyro,t:t};
-  if(wk){busy=true;wk.postMessage(m,[m.buf])}else onTr(trk.frame(m));
-}
-function vf(){cap();vid.requestVideoFrameCallback(vf)}
-  /* ---------- AI 识别：跟着锁定框走（优先识别被选中的、在移动的框，其余时间扫全屏找新目标）---------- */
-function roiJob(v){
-  const S=Math.min(VH,Math.max(160,v.sd*2.2)),x=Math.max(0,Math.min(VW-S,v.cx-S/2)),y=Math.max(0,Math.min(VH-S,v.cy-S/2));
-  return {x:x,y:y,w:S,h:S,cw:300,ch:300,roi:true};
-}
-function scanJob(){
-  const n=fj++;
-  if(n%3===2){const t=TILES[((n/3)|0)%4],w=VW*.6,h=VH*.6;return {x:t[0]*(VW-w),y:t[1]*(VH-h),w:w,h:h,cw:480,ch:270,roi:false}}
-  return {x:0,y:0,w:VW,h:VH,cw:480,ch:270,roi:false};
-}
-function nextJob(now){
-  const vs=[...TV.values()],last=v=>Math.max(v.ai||0,v.jt||0);
-  let c=vs.filter(v=>(v.id===lk||v.id===zm||v.id===sel)&&now-last(v)>100).sort((a,b)=>last(a)-last(b))[0];
-  if(!c&&jc%4!==3)c=vs.filter(v=>(v.mv||now-v.at<2000)&&now-last(v)>280).sort((a,b)=>last(a)-last(b))[0];
-  jc++;
-  if(c){c.jt=now;return roiJob(c)}
-  return scanJob();
-}
-function sendDet(j,tc,res){
-  const f=AW/VW,kx=j.w/j.cw*f,ky=j.h/j.ch*f;
-  let list=res.filter(r=>!j.roi||(r.bbox[0]>2&&r.bbox[1]>2&&r.bbox[0]+r.bbox[2]<j.cw-2&&r.bbox[1]+r.bbox[3]<j.ch-2));
-  list=list.map(r=>({x:r.bbox[0]*kx+j.x*f,y:r.bbox[1]*ky+j.y*f,w:r.bbox[2]*kx,h:r.bbox[3]*ky,cls:r.class,score:r.score}));
-  const cv=[j.x*f,j.y*f,(j.x+j.w)*f,(j.y+j.h)*f];
-  if(wk)wk.postMessage({k:'d',list:list,t:tc,cv:cv});else trk.det(list,tc,cv);
-  nd++;
-}
-function aiTick(){
-  if(!VW||inflight||!(aiReady||model)){setTimeout(aiTick,inflight?4:100);return}
-  const j=nextJob(performance.now()),tc=performance.now();
-  oc.width=j.cw;oc.height=j.ch;Zc.drawImage(vid,j.x,j.y,j.w,j.h,0,0,j.cw,j.ch);
-  inflight=true;
-  if(aw){
-    const d=Zc.getImageData(0,0,j.cw,j.ch),id=++jid;pend.set(id,{j:j,tc:tc});
-    aw.postMessage({k:'run',id:id,buf:d.data.buffer,w:j.cw,h:j.ch},[d.data.buffer]);
-  }else{
-    model.detect(oc,20,.35).then(r=>{sendDet(j,tc,r);inflight=false;setTimeout(aiTick,0)}).catch(()=>{inflight=false;setTimeout(aiTick,20)});
-  }
-}
-async function mainAI(){
-  try{
-    try{tf.env().set('WEBGL_FORCE_F16_TEXTURES',true)}catch(e){}
-    if(!(await tf.setBackend('webgl')))await tf.setBackend('cpu');
-    await tf.ready();
-    model=await cocoSsd.load({base:'lite_mobilenet_v2',modelUrl:'model/model.json'});
-    oc.width=480;oc.height=270;await model.detect(oc,1,.5);
-    ai='AI：就绪（主线程）';
-  }catch(e){ai='AI不可用：'+(e&&e.message||e)}
-}
-function fallbackAI(msg){
-  if(aw){try{aw.terminate()}catch(e){}aw=null}
-  inflight=false;pend.clear();
-  if(model)return;
-  ai='AI：后台线程不可用（'+msg+'），改用主线程…';mainAI();
-}
-function mkAIWorker(){
-  try{
-    const base=new URL('./',location.href).href;
-    const src=`importScripts("${base}tf.min.js","${base}coco.min.js");
-let model=null;
-onmessage=async e=>{
-  const m=e.data;
-  if(m.k==="init"){
-    try{
-      try{tf.env().set("WEBGL_FORCE_F16_TEXTURES",true)}catch(x){}
-      if(!(await tf.setBackend("webgl")))throw new Error("webgl");
-      await tf.ready();
-      model=await cocoSsd.load({base:"lite_mobilenet_v2",modelUrl:"${base}model/model.json"});
-      await model.detect(new ImageData(300,300),1,.5);
-      postMessage({k:"ready"});
-    }catch(x){postMessage({k:"err",msg:String(x&&x.message||x)})}
-  }else if(m.k==="run"){
-    try{
-      const r=await model.detect(new ImageData(new Uint8ClampedArray(m.buf),m.w,m.h),20,.35);
-      postMessage({k:"res",id:m.id,res:r.map(q=>({bbox:q.bbox,class:q.class,score:q.score}))});
-    }catch(x){postMessage({k:"res",id:m.id,res:[]})}
-  }
-};`;
-    aw=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
-    aw.onmessage=e=>{
-      const m=e.data;
-      if(m.k==='ready'){aiReady=true;ai='AI：就绪（后台线程）'}
-      else if(m.k==='err')fallbackAI(m.msg);
-      else if(m.k==='res'){const p=pend.get(m.id);pend.delete(m.id);if(p)sendDet(p.j,p.tc,m.res);inflight=false;setTimeout(aiTick,0)}
-    };
-    aw.onerror=e=>fallbackAI(e&&e.message||'错误');
-    aw.postMessage({k:'init'});
-    setTimeout(()=>{if(aw&&!aiReady)fallbackAI('加载超时')},30000);
-  }catch(e){fallbackAI(e&&e.message||'无法创建')}
-  }
-  /* ---------- 显示与交互 ---------- */
+};
+window.nativeReady=function(){$('ov').style.display='none';ui()};
+window.nativeError=function(m){say('出错：'+m);const b=$('go');b.disabled=false;b.textContent='重试'};
+
+/* ---------- 显示与交互 ---------- */
 const S=(x,y)=>[W/2+(x-cvx)*s0*z,H/2+(y-cvy)*s0*z];
 const vis=now=>{const a=[];TV.forEach(v=>{if(zm?v.id===zm:(showAll||v.mv||now-v.at<2000||v.id===lk||v.id===sel))a.push(v)});return a};
 function corners(x,y,s,col,lw){
@@ -375,7 +89,8 @@ function draw(dt,now){
   const hw=Math.min(VW/2,W/(2*s0*z)),hh=Math.min(VH/2,H/(2*s0*z));
   cvx+=(Math.max(hw,Math.min(VW-hw,tx))-cvx)*(1-Math.exp(-dt*12));
   cvy+=(Math.max(hh,Math.min(VH-hh,ty))-cvy)*(1-Math.exp(-dt*12));
-  if(VW)vid.style.transform='translate('+(W/2-cvx*s0*z)+'px,'+(H/2-cvy*s0*z)+'px) scale('+s0*z+')';
+  const vk=(-(cvx-VW/2)*s0*z).toFixed(1)+','+(-(cvy-VH/2)*s0*z).toFixed(1)+','+z.toFixed(3);
+  if(vk!==lastV&&window.Android&&Android.view){Android.view(-(cvx-VW/2)*s0*z,-(cvy-VH/2)*s0*z,z);lastV=vk}
   X.clearRect(0,0,W,H);X.textBaseline='middle';X.textAlign='left';
   const vs=vis(now);
   vs.forEach(t=>{
@@ -416,24 +131,16 @@ $('bz').onclick=()=>{
   ui();pins();
 };
 $('bs').onclick=()=>{showAll=!showAll;toast(showAll?'显示全部识别到的物体':'只显示正在移动的物体');ui()};
-  function frame(t){
+function frame(t){
   const dt=Math.min(.05,(t-T0)/1000||.016);T0=t;draw(dt,performance.now());requestAnimationFrame(frame);
-}
-$('go').onclick=async()=>{
+  }
+$('go').onclick=()=>{
+  if(!window.Android){say('请在安装好的 App 中使用');return}
   const b=$('go');b.disabled=true;
-  try{
-    say('正在打开摄像头…（弹出权限请求请点允许）');
-    vid.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}},audio:false});
-    await vid.play();
-    VW=vid.videoWidth;VH=vid.videoHeight;AH=Math.round(AW*VH/VW);ac.width=AW;ac.height=AH;
-    vid.style.width=VW+'px';vid.style.height=VH+'px';s0=Math.max(W/VW,H/VH);cvx=VW/2;cvy=VH/2;
-    $('ov').style.display='none';
-    mkWorker();
-    if(vid.requestVideoFrameCallback)vid.requestVideoFrameCallback(vf);else setInterval(cap,16);
-    setInterval(()=>{aps=na;na=0;dps=nd;nd=0},1000);ui();
-    ai='AI：加载中…';mkAIWorker();aiTick();
-  }catch(e){say('出错：'+(e&&e.message||e));b.disabled=false;b.textContent='重试'}
+  say('正在启动摄像头和 AI…（弹出权限请求请点允许）');
+  Android.start();
 };
+ui();
 requestAnimationFrame(frame);
 </script>
 </body>
